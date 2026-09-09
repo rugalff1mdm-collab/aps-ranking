@@ -283,7 +283,7 @@ async function analytics(req){
     (SELECT COUNT(s.id) FROM sales s WHERE s.consultant_id=u.id${salesWhere}) sales,
     (SELECT COALESCE(SUM(s.amount),0) FROM sales s WHERE s.consultant_id=u.id${salesWhere}) revenue
     FROM users u WHERE u.role='consultant' AND u.active=1 ${consultantId?'AND u.id=?':''}
-    ORDER BY revenue DESC,sales DESC,u.name ASC`,[...leadParams,...salesParams,...(consultantId?[consultantId]:[])]);
+    ORDER BY revenue DESC,sales DESC,u.name ASC`,[...leadParams,...salesParams,...salesParams,...(consultantId?[consultantId]:[])]);
   const decorate=r=>({...r,leads:Number(r.leads||0),sales:Number(r.sales||0),revenue:Number(r.revenue||0),conversion:Number(r.leads)?Number(r.sales)/Number(r.leads)*100:0,goal:Number(r.goal||0),goal_pct:Number(r.goal)?Number(r.revenue)/Number(r.goal)*100:0});
   return {month,summary:{revenue:Number(summary.revenue||0),sales:Number(summary.sales_count||0),goal:Number(goal.goal||0),leads:Number(leads.leads||0),conversion:Number(leads.leads)?Number(summary.sales||summary.sales_count||0)/Number(leads.leads)*100:0},bySource:bySource.map(decorate),byState:byState.map(decorate),consultants:consultants.map(decorate)};
 }
