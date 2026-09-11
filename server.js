@@ -144,8 +144,11 @@ async function init(){
     ];
     for(const r of rules) await pool.query(`INSERT INTO prize_rules(name,category,frequency,payment_type,min_amount,max_installments,min_installments,prize_amount,active,description) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9)`,[r[0],r[1],r[1]==='sale'?'sale':r[1],r[2]||null,r[3],r[4],r[1]==='sale'?(r[4]===6?2:r[4]):null,r[5],r[6]]);
   }
-  const supDefaults=[['daily_goal',28600],['daily_prize',50],['weekly_goal',5715],['weekly_prize',100]];
+  const supDefaults=[['daily_goal',5715],['daily_prize',50],['weekly_goal',28600],['weekly_prize',100]];
   for(const [n,v] of supDefaults) await pool.query(`INSERT INTO supervisor_prize_settings(name,value,active) VALUES($1,$2,1) ON CONFLICT(name) DO NOTHING`,[n,v]);
+  // Corrige a inversão antiga das metas do supervisor, sem mexer em valores que o ADMIN já tenha personalizado.
+  await pool.query(`UPDATE supervisor_prize_settings SET value=5715 WHERE name='daily_goal' AND value=28600`);
+  await pool.query(`UPDATE supervisor_prize_settings SET value=28600 WHERE name='weekly_goal' AND value=5715`);
 
 
   for(const name of ['Daniel','Tom','Remalho']){
@@ -169,6 +172,10 @@ function auth(req,res,next){
 }
 function adminOnly(req,res,next){
   if(req.user.role!=='admin') return res.status(403).json({error:'Acesso restrito'});
+  next();
+}
+function rankingAdminOrAdmin(req,res,next){
+  if(!['admin','ranking_admin'].includes(req.user.role)) return res.status(403).json({error:'Acesso restrito'});
   next();
 }
 function validMonth(value){return /^\d{4}-\d{2}$/.test(value||'')?value:new Date().toISOString().slice(0,7)}
@@ -229,7 +236,7 @@ app.get('/api/ranking',auth,async(req,res)=>{
 
 app.get('/api/sales',auth,async(req,res)=>{
   const month=validMonth(req.query.month); const p=[month]; let extra='';
-  if(req.user.role!=='admin'){extra=' AND s.consultant_id=?';p.push(req.user.id)}
+  if(!['admin','ranking_admin'].includes(req.user.role)){extra=' AND s.consultant_id=?';p.push(req.user.id)}
   const rows=await dbAll(`SELECT s.id,s.client_name,s.amount,s.sale_date,s.state,s.lead_source_id,s.payment_type,s.installments,ls.name lead_source_name,u.name consultant_name,u.id consultant_id
     FROM sales s JOIN users u ON u.id=s.consultant_id LEFT JOIN lead_sources ls ON ls.id=s.lead_source_id
     WHERE substr(s.sale_date,1,7)=?${extra} ORDER BY s.sale_date DESC,s.id DESC`,p);
@@ -242,6 +249,7 @@ app.post('/api/sales',auth,async(req,res)=>{
     const paymentType=String(req.body?.payment_type||'').toLowerCase(); const installments=req.body?.installments?Number(req.body.installments):null;
     if(!client_name || !Number.isFinite(value) || value<=0 || !validDate(sale_date) || !state || !STATES.includes(state) || !sourceId || !['avista','parcelado'].includes(paymentType)) return res.status(400).json({error:'Cliente, valor, data, estado, origem e forma de pagamento são obrigatórios'});
     if(paymentType==='parcelado' && (!Number.isInteger(installments)||installments<2||installments>60)) return res.status(400).json({error:'Informe corretamente o número de parcelas'});
+    if(req.user.role==='ranking_admin') return res.status(403).json({error:'Este acesso é somente para ranking e premiações'});
     const consultantId=req.user.role==='admin'?Number(req.body.consultant_id||0):req.user.id;
     if(!consultantId) return res.status(400).json({error:'Informe o consultor'});
     const c=await dbGet('SELECT id FROM users WHERE id=? AND role="consultant" AND active=1',[consultantId]);
@@ -277,11 +285,12 @@ app.get('/api/users',auth,adminOnly,async(req,res)=>{
 });
 app.post('/api/users',auth,adminOnly,async(req,res)=>{
   try{
-    const {name,email,password,goal,photo_data}=req.body||{};
+    const {name,email,password,goal,photo_data}=req.body||{}; const requestedRole=String(req.body?.role||'consultant');
     if(!name||!email||!password) return res.status(400).json({error:'Nome, e-mail e senha são obrigatórios'});
     if(String(password).length<6) return res.status(400).json({error:'A senha deve ter pelo menos 6 caracteres'});
     const goalValue=Number(goal||0);if(!Number.isFinite(goalValue)||goalValue<0) return res.status(400).json({error:'Meta inválida'});
-    const hash=await bcrypt.hash(String(password),10);const result=await dbRun('INSERT INTO users (name,email,password_hash,role,goal,photo_data) VALUES (?,?,?,?,?,?)',[String(name).trim(),String(email).trim().toLowerCase(),hash,'consultant',goalValue,photo_data||null]);res.json({id:result.lastID});
+    if(!['consultant','ranking_admin'].includes(requestedRole)) return res.status(400).json({error:'Tipo de acesso inválido'});
+    const hash=await bcrypt.hash(String(password),10);const result=await dbRun('INSERT INTO users (name,email,password_hash,role,goal,photo_data) VALUES (?,?,?,?,?,?)',[String(name).trim(),String(email).trim().toLowerCase(),hash,requestedRole,requestedRole==='consultant'?goalValue:0,photo_data||null]);res.json({id:result.lastID});
   }catch(e){res.status(400).json({error:'E-mail já cadastrado ou dados inválidos'})}
 });
 app.patch('/api/users/:id',auth,adminOnly,async(req,res)=>{
@@ -397,11 +406,21 @@ async function prizeData(month, consultantId=null){
     const ss=byConsultant.get(c.id)||[];
     // Sale-based: for a sale, take the highest matching prize in its payment bracket.
     for(const s of ss){
-      const matches=rules.filter(r=>r.category==='sale' && Number(s.amount)>=Number(r.min_amount||0) && (!r.payment_type || r.payment_type===s.payment_type) &&
-        (!r.max_installments || (s.payment_type==='parcelado' && Number(s.installments)<=Number(r.max_installments) && (!r.min_installments || Number(s.installments)>=Number(r.min_installments)))));
-      // For 6x tiers, exact 6; for 7x and 8x exact. Existing sales without payment metadata are not guessed.
-      const best=matches.sort((a,b)=>Number(b.prize_amount)-Number(a.prize_amount))[0];
-      if(best && Number(best.prize_amount)>0)c.awards.push({rule_id:best.id,rule_name:best.name,amount:Number(best.prize_amount),date:s.sale_date,reason:`Venda de ${moneyJs(s.amount)}${s.payment_type==='parcelado'?` em ${s.installments}x`:' à vista'}`});
+      let matches=[]; let legacy=false;
+      if(s.payment_type){
+        matches=rules.filter(r=>r.category==='sale' && Number(s.amount)>=Number(r.min_amount||0) && (!r.payment_type || r.payment_type===s.payment_type) &&
+          (!r.max_installments || (s.payment_type==='parcelado' && Number(s.installments)<=Number(r.max_installments) && (!r.min_installments || Number(s.installments)>=Number(r.min_installments)))));
+      }else{
+        // Vendas antigas não tinham forma de pagamento. Para não deixar todo o histórico sem cálculo,
+        // aplica a faixa parcelada correspondente ao valor e marca como estimativa para revisão pelo ADMIN.
+        legacy=true;
+        matches=rules.filter(r=>r.category==='sale' && r.payment_type==='parcelado' && Number(s.amount)>=Number(r.min_amount||0));
+      }
+      const best=matches.sort((a,b)=>Number(b.min_amount)-Number(a.min_amount)||Number(b.prize_amount)-Number(a.prize_amount))[0];
+      if(best && Number(best.prize_amount)>0){
+        const detail=legacy?`Venda histórica de ${moneyJs(s.amount)} — faixa parcelada aplicada por valor; revise a forma de pagamento se necessário`:`Venda de ${moneyJs(s.amount)}${s.payment_type==='parcelado'?` em ${s.installments}x`:' à vista'}`;
+        c.awards.push({rule_id:best.id,rule_name:best.name,amount:Number(best.prize_amount),date:s.sale_date,reason:detail,estimated:legacy});
+      }
     }
     // Daily and weekly accumulations.
     const days={}; ss.forEach(s=>(days[s.sale_date]??=[]).push(s));
@@ -432,11 +451,12 @@ async function prizeData(month, consultantId=null){
     }
   }
   out.forEach(c=>{c.total_prize=c.awards.reduce((a,x)=>a+Number(x.amount),0);c.awards.sort((a,b)=>String(b.date).localeCompare(String(a.date))||b.amount-a.amount)});
+  out.sort((a,b)=>b.total_prize-a.total_prize||b.revenue-a.revenue||a.name.localeCompare(b.name));
   return {month,consultants:out,rules};
 }
 function moneyJs(v){return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(v)||0)}
 app.get('/api/prizes',auth,async(req,res)=>{
-  try{const month=validMonth(req.query.month);const cid=req.user.role==='admin'?(Number(req.query.consultant_id||0)||null):req.user.id;res.json(await prizeData(month,cid));}
+  try{const month=validMonth(req.query.month);const cid=['admin','ranking_admin'].includes(req.user.role)?(Number(req.query.consultant_id||0)||null):req.user.id;res.json(await prizeData(month,cid));}
   catch(e){console.error('prizes',e);res.status(500).json({error:'Não foi possível calcular as premiações'})}
 });
 app.get('/api/prize-rules',auth,adminOnly,async(req,res)=>res.json(await dbAll('SELECT * FROM prize_rules ORDER BY active DESC,category,min_amount,id')));
@@ -446,16 +466,16 @@ app.post('/api/prize-rules',auth,adminOnly,async(req,res)=>{
 app.patch('/api/prize-rules/:id',auth,adminOnly,async(req,res)=>{
   try{const r=await dbGet('SELECT * FROM prize_rules WHERE id=?',[req.params.id]);if(!r)return res.status(404).json({error:'Regra não encontrada'});const b=req.body||{};await dbRun('UPDATE prize_rules SET name=?,category=?,frequency=?,payment_type=?,min_amount=?,max_installments=?,min_installments=?,min_days=?,prize_amount=?,active=?,description=? WHERE id=?',[String(b.name??r.name),String(b.category??r.category),String(b.frequency??r.frequency),b.payment_type??r.payment_type,Number(b.min_amount??r.min_amount),b.max_installments===null?null:Number(b.max_installments??r.max_installments)||null,b.min_installments===null?null:Number(b.min_installments??r.min_installments)||null,b.min_days===null?null:Number(b.min_days??r.min_days)||null,Number(b.prize_amount??r.prize_amount),b.active===undefined?r.active:(b.active?1:0),b.description??r.description,r.id]);res.json({ok:true})}catch(e){res.status(400).json({error:'Não foi possível atualizar a regra'})}
 });
-app.get('/api/supervisor-prizes',auth,adminOnly,async(req,res)=>{
+app.get('/api/supervisor-prizes',auth,rankingAdminOrAdmin,async(req,res)=>{
   const month=validMonth(req.query.month);const cfg=await dbAll('SELECT * FROM supervisor_prize_settings ORDER BY id');const by=Object.fromEntries(cfg.map(x=>[x.name,{value:Number(x.value),active:!!x.active}]));
   const rows=await dbAll(`SELECT sale_date,COALESCE(SUM(amount),0) revenue,COUNT(*) sales FROM sales WHERE substr(sale_date,1,7)=? GROUP BY sale_date ORDER BY sale_date`,[month]);
-  const dailyGoal=by.daily_goal?.value??28600, weeklyGoal=by.weekly_goal?.value??5715, dailyPrize=by.daily_prize?.value??50, weeklyPrize=by.weekly_prize?.value??100;
+  const dailyGoal=by.daily_goal?.value??5715, weeklyGoal=by.weekly_goal?.value??28600, dailyPrize=by.daily_prize?.value??50, weeklyPrize=by.weekly_prize?.value??100;
   const daily=rows.map(r=>({...r,revenue:Number(r.revenue),sales:Number(r.sales),hit:Number(r.revenue)>=dailyGoal,prize:Number(r.revenue)>=dailyGoal?dailyPrize:0}));
   const weeks={};rows.forEach(r=>(weeks[weekStart(r.sale_date)]??=[]).push(r));const weekly=Object.entries(weeks).map(([start,rs])=>{const revenue=rs.reduce((a,r)=>a+Number(r.revenue),0);return {week_start:start,revenue,hit:revenue>=weeklyGoal,prize:revenue>=weeklyGoal?weeklyPrize:0}});
   return res.json({month,settings:by,daily,weekly,total_prize:daily.reduce((a,r)=>a+r.prize,0)+weekly.reduce((a,r)=>a+r.prize,0)});
 });
 app.patch('/api/supervisor-prizes/:name',auth,adminOnly,async(req,res)=>{const n=String(req.params.name);if(!['daily_goal','daily_prize','weekly_goal','weekly_prize'].includes(n))return res.status(400).json({error:'Configuração inválida'});const v=Number(req.body?.value);if(!Number.isFinite(v)||v<0)return res.status(400).json({error:'Valor inválido'});await dbRun('UPDATE supervisor_prize_settings SET value=?,active=1,updated_at=CURRENT_TIMESTAMP WHERE name=?',[v,n]);res.json({ok:true})});
-app.get('/api/prize-losses',auth,adminOnly,async(req,res)=>{const month=validMonth(req.query.month);const rows=await dbAll(`SELECT pl.*,u.name consultant_name,pr.name rule_name FROM prize_losses pl JOIN users u ON u.id=pl.consultant_id LEFT JOIN prize_rules pr ON pr.id=pl.rule_id WHERE pl.period_month=? ORDER BY pl.loss_date DESC,pl.id DESC`,[month]);res.json(rows)});
+app.get('/api/prize-losses',auth,rankingAdminOrAdmin,async(req,res)=>{const month=validMonth(req.query.month);const rows=await dbAll(`SELECT pl.*,u.name consultant_name,pr.name rule_name FROM prize_losses pl JOIN users u ON u.id=pl.consultant_id LEFT JOIN prize_rules pr ON pr.id=pl.rule_id WHERE pl.period_month=? ORDER BY pl.loss_date DESC,pl.id DESC`,[month]);res.json(rows)});
 app.post('/api/prize-losses',auth,adminOnly,async(req,res)=>{const b=req.body||{};if(!b.consultant_id||!b.reason||!validDate(b.loss_date))return res.status(400).json({error:'Consultor, data e motivo são obrigatórios'});const r=await dbRun('INSERT INTO prize_losses(consultant_id,rule_id,period_month,loss_date,reason,notes) VALUES(?,?,?,?,?,?)',[Number(b.consultant_id),b.rule_id?Number(b.rule_id):null,String(b.period_month||b.loss_date.slice(0,7)),b.loss_date,String(b.reason).trim(),b.notes||null]);res.json({id:r.lastID})});
 app.delete('/api/prize-losses/:id',auth,adminOnly,async(req,res)=>{await dbRun('DELETE FROM prize_losses WHERE id=?',[req.params.id]);res.json({ok:true})});
 
