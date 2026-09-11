@@ -417,7 +417,9 @@ function addDaysISO(date,days){const d=new Date(date.getTime());d.setUTCDate(d.g
 function weekStart(date){const d=dateOnly(date);const day=d.getUTCDay();const diff=day===0?-6:1-day;return addDaysISO(d,diff)}
 async function prizeData(month, consultantId=null){
   const rules=await dbAll('SELECT * FROM prize_rules WHERE active=1 ORDER BY category,min_amount DESC,id');
-  const sales=await dbAll(`SELECT s.*,u.name consultant_name FROM sales s JOIN users u ON u.id=s.consultant_id WHERE substr(s.sale_date,1,7)=?${consultantId?' AND s.consultant_id=?':''} ORDER BY s.sale_date ASC,s.id ASC`,consultantId?[month,consultantId]:[month]);
+  // Carrega todas as vendas do mês para que o ranking diário consiga comparar a equipe inteira,
+  // inclusive quando a tela é aberta pelo login de um único consultor.
+  const sales=await dbAll(`SELECT s.*,u.name consultant_name FROM sales s JOIN users u ON u.id=s.consultant_id WHERE substr(s.sale_date,1,7)=? ORDER BY s.sale_date ASC,s.id ASC`,[month]);
   const consultants=consultantId?await dbAll("SELECT id,name,goal,photo_data FROM users WHERE id=? AND role='consultant'",[consultantId]):await dbAll("SELECT id,name,goal,photo_data FROM users WHERE role='consultant' AND active=1 ORDER BY name");
   const out=consultants.map(c=>({id:c.id,name:c.name,goal:Number(c.goal||0),photo_data:c.photo_data||null,revenue:0,gross_revenue:0,sales_count:0,awards:[],lost:[],total_prize:0}));
   const byId=new Map(out.map(x=>[x.id,x])); const byConsultant=new Map();
@@ -426,18 +428,27 @@ async function prizeData(month, consultantId=null){
     const ss=byConsultant.get(c.id)||[];
     // Sale-based: for a sale, take the highest matching prize in its payment bracket.
     for(const s of ss){
-      let matches=[]; let legacy=false;
+      let matches=[]; let outsideInstallment=false;
       const prizeBase=s.gross_amount===null||s.gross_amount===undefined?null:Number(s.gross_amount);
-      if(prizeBase===null){
-        continue;
-      }else if(s.payment_type){
+      if(prizeBase===null) continue;
+      if(s.payment_type){
         matches=rules.filter(r=>r.category==='sale' && prizeBase>=Number(r.min_amount||0) && (!r.payment_type || r.payment_type===s.payment_type) &&
           (!r.max_installments || (s.payment_type==='parcelado' && Number(s.installments)<=Number(r.max_installments) && (!r.min_installments || Number(s.installments)>=Number(r.min_installments)))));
+        // Se o parcelamento não estiver em nenhuma faixa configurada (ex.: 10x),
+        // aplica 50% da maior premiação que o valor da venda atingiria no parcelado.
+        if(!matches.length && s.payment_type==='parcelado'){
+          const fallback=rules.filter(r=>r.category==='sale' && (!r.payment_type || r.payment_type==='parcelado') && prizeBase>=Number(r.min_amount||0))
+            .sort((a,b)=>Number(b.min_amount)-Number(a.min_amount)||Number(b.prize_amount)-Number(a.prize_amount))[0];
+          if(fallback){ matches=[fallback]; outsideInstallment=true; }
+        }
       }
       const best=matches.sort((a,b)=>Number(b.min_amount)-Number(a.min_amount)||Number(b.prize_amount)-Number(a.prize_amount))[0];
       if(best && Number(best.prize_amount)>0){
-        const detail=legacy?`Venda histórica de ${moneyJs(prizeBase)} — faixa parcelada aplicada por valor; revise a forma de pagamento se necessário`:`Venda de ${moneyJs(prizeBase)}${s.payment_type==='parcelado'?` em ${s.installments}x`:' à vista'}`;
-        c.awards.push({rule_id:best.id,rule_name:best.name,amount:Number(best.prize_amount),date:s.sale_date,reason:detail,estimated:legacy});
+        const awardAmount=outsideInstallment?Number((Number(best.prize_amount)/2).toFixed(2)):Number(best.prize_amount);
+        const detail=outsideInstallment
+          ?`Venda de ${moneyJs(prizeBase)} em ${s.installments}x — fora das faixas configuradas, 50% da premiação base`
+          :`Venda de ${moneyJs(prizeBase)}${s.payment_type==='parcelado'?` em ${s.installments}x`:' à vista'}`;
+        c.awards.push({rule_id:best.id,rule_name:outsideInstallment?`${best.name} — 50% fora da faixa`:best.name,amount:awardAmount,date:s.sale_date,reason:detail,estimated:false});
       }
     }
     // Daily and weekly accumulations.
@@ -463,9 +474,14 @@ async function prizeData(month, consultantId=null){
     const activeIds=new Set(out.map(x=>x.id)); const byDay={};
     sales.filter(s=>activeIds.has(s.consultant_id)).forEach(s=>{(byDay[s.sale_date]??={});byDay[s.sale_date][s.consultant_id]=(byDay[s.sale_date][s.consultant_id]||0)+(s.gross_amount==null?0:Number(s.gross_amount))});
     for(const [day,vals] of Object.entries(byDay)){
-      const hit=Object.entries(vals).filter(([,v])=>v>=7500).sort((a,b)=>b[1]-a[1]);
-      if(hit[0]&&dailyRule1){const c=byId.get(Number(hit[0][0]));if(c&&Number(dailyRule1.prize_amount)>0)c.awards.push({rule_id:dailyRule1.id,rule_name:dailyRule1.name,amount:Number(dailyRule1.prize_amount),date:day,reason:`1º lugar do dia com ${moneyJs(hit[0][1])}`})}
-      if(hit[1]&&dailyRule2){const c=byId.get(Number(hit[1][0]));if(c&&Number(dailyRule2.prize_amount)>0)c.awards.push({rule_id:dailyRule2.id,rule_name:dailyRule2.name,amount:Number(dailyRule2.prize_amount),date:day,reason:`2º lugar do dia com ${moneyJs(hit[1][1])}`})}
+      // A meta de R$ 7.500 é da EQUIPE no dia. Depois de bater a meta,
+      // 1º e 2º lugares são definidos pelo faturamento bruto individual.
+      const teamTotal=Object.values(vals).reduce((a,v)=>a+Number(v||0),0);
+      const teamTarget=Number(dailyRule1?.min_amount||dailyRule2?.min_amount||7500);
+      if(teamTotal<teamTarget) continue;
+      const hit=Object.entries(vals).filter(([,v])=>Number(v)>0).sort((a,b)=>Number(b[1])-Number(a[1]));
+      if(hit[0]&&dailyRule1){const c=byId.get(Number(hit[0][0]));if(c&&Number(dailyRule1.prize_amount)>0)c.awards.push({rule_id:dailyRule1.id,rule_name:dailyRule1.name,amount:Number(dailyRule1.prize_amount),date:day,reason:`1º lugar do dia — equipe fez ${moneyJs(teamTotal)}`})}
+      if(hit[1]&&dailyRule2){const c=byId.get(Number(hit[1][0]));if(c&&Number(dailyRule2.prize_amount)>0)c.awards.push({rule_id:dailyRule2.id,rule_name:dailyRule2.name,amount:Number(dailyRule2.prize_amount),date:day,reason:`2º lugar do dia — equipe fez ${moneyJs(teamTotal)}`})}
     }
   }
   out.forEach(c=>{c.total_prize=c.awards.reduce((a,x)=>a+Number(x.amount),0);c.awards.sort((a,b)=>String(b.date).localeCompare(String(a.date))||b.amount-a.amount)});
