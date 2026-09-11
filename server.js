@@ -442,30 +442,15 @@ async function prizeData(month, consultantId=null){
       if(all&&Number(all.prize_amount)>0)c.awards.push({rule_id:all.id,rule_name:all.name,amount:Number(all.prize_amount),date:w,reason:'Venda registrada em todos os dias úteis da semana'});
     }
   }
-  // Daily team target + ranking: first check whether the WHOLE TEAM reached the daily target.
-  // If the team reaches the target, the consultant with the highest gross sales gets 1st-place prize
-  // and the second-highest consultant with sales gets 2nd-place prize. The individual consultant
-  // does NOT need to reach the target alone.
+  // Daily meta ranking across all consultants in selected month.
   const dailyRule1=rules.find(r=>r.category==='daily_rank' && /1º/.test(r.name)); const dailyRule2=rules.find(r=>r.category==='daily_rank' && /2º/.test(r.name));
   if(dailyRule1||dailyRule2){
     const activeIds=new Set(out.map(x=>x.id)); const byDay={};
-    sales.filter(s=>activeIds.has(s.consultant_id)).forEach(s=>{
-      (byDay[s.sale_date]??={});
-      byDay[s.sale_date][s.consultant_id]=(byDay[s.sale_date][s.consultant_id]||0)+(s.gross_amount==null?0:Number(s.gross_amount));
-    });
-    const teamTarget=Number(dailyRule1?.min_amount||dailyRule2?.min_amount||7500);
+    sales.filter(s=>activeIds.has(s.consultant_id)).forEach(s=>{(byDay[s.sale_date]??={});byDay[s.sale_date][s.consultant_id]=(byDay[s.sale_date][s.consultant_id]||0)+(s.gross_amount==null?0:Number(s.gross_amount))});
     for(const [day,vals] of Object.entries(byDay)){
-      const teamTotal=Object.values(vals).reduce((a,v)=>a+Number(v||0),0);
-      if(teamTotal<teamTarget) continue;
-      const ranking=Object.entries(vals).filter(([,v])=>Number(v)>0).sort((a,b)=>Number(b[1])-Number(a[1]));
-      if(ranking[0]&&dailyRule1){
-        const c=byId.get(Number(ranking[0][0]));
-        if(c&&Number(dailyRule1.prize_amount)>0)c.awards.push({rule_id:dailyRule1.id,rule_name:dailyRule1.name,amount:Number(dailyRule1.prize_amount),date:day,reason:`1º lugar do dia — equipe ${moneyJs(teamTotal)}; consultora ${moneyJs(ranking[0][1])}`});
-      }
-      if(ranking[1]&&dailyRule2){
-        const c=byId.get(Number(ranking[1][0]));
-        if(c&&Number(dailyRule2.prize_amount)>0)c.awards.push({rule_id:dailyRule2.id,rule_name:dailyRule2.name,amount:Number(dailyRule2.prize_amount),date:day,reason:`2º lugar do dia — equipe ${moneyJs(teamTotal)}; consultora ${moneyJs(ranking[1][1])}`});
-      }
+      const hit=Object.entries(vals).filter(([,v])=>v>=7500).sort((a,b)=>b[1]-a[1]);
+      if(hit[0]&&dailyRule1){const c=byId.get(Number(hit[0][0]));if(c&&Number(dailyRule1.prize_amount)>0)c.awards.push({rule_id:dailyRule1.id,rule_name:dailyRule1.name,amount:Number(dailyRule1.prize_amount),date:day,reason:`1º lugar do dia com ${moneyJs(hit[0][1])}`})}
+      if(hit[1]&&dailyRule2){const c=byId.get(Number(hit[1][0]));if(c&&Number(dailyRule2.prize_amount)>0)c.awards.push({rule_id:dailyRule2.id,rule_name:dailyRule2.name,amount:Number(dailyRule2.prize_amount),date:day,reason:`2º lugar do dia com ${moneyJs(hit[1][1])}`})}
     }
   }
   out.forEach(c=>{c.total_prize=c.awards.reduce((a,x)=>a+Number(x.amount),0);c.awards.sort((a,b)=>String(b.date).localeCompare(String(a.date))||b.amount-a.amount)});
