@@ -64,6 +64,7 @@ async function init(){
     consultant_id INTEGER NOT NULL REFERENCES users(id),
     client_name TEXT NOT NULL,
     amount REAL NOT NULL,
+    gross_amount REAL,
     sale_date TEXT NOT NULL,
     state TEXT,
     lead_source_id INTEGER,
@@ -84,6 +85,7 @@ async function init(){
     state TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
+  await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS gross_amount REAL`);
   await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_type TEXT`);
   await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS installments INTEGER`);
   await pool.query(`CREATE TABLE IF NOT EXISTS prize_rules (
@@ -237,17 +239,17 @@ app.get('/api/ranking',auth,async(req,res)=>{
 app.get('/api/sales',auth,async(req,res)=>{
   const month=validMonth(req.query.month); const p=[month]; let extra='';
   if(!['admin','ranking_admin'].includes(req.user.role)){extra=' AND s.consultant_id=?';p.push(req.user.id)}
-  const rows=await dbAll(`SELECT s.id,s.client_name,s.amount,s.sale_date,s.state,s.lead_source_id,s.payment_type,s.installments,ls.name lead_source_name,u.name consultant_name,u.id consultant_id
+  const rows=await dbAll(`SELECT s.id,s.client_name,s.amount,s.gross_amount,s.sale_date,s.state,s.lead_source_id,s.payment_type,s.installments,ls.name lead_source_name,u.name consultant_name,u.id consultant_id
     FROM sales s JOIN users u ON u.id=s.consultant_id LEFT JOIN lead_sources ls ON ls.id=s.lead_source_id
     WHERE substr(s.sale_date,1,7)=?${extra} ORDER BY s.sale_date DESC,s.id DESC`,p);
-  res.json(rows.map(r=>({...r,amount:Number(r.amount)})));
+  res.json(rows.map(r=>({...r,amount:Number(r.amount),gross_amount:r.gross_amount===null||r.gross_amount===undefined?null:Number(r.gross_amount)})));
 });
 
 app.post('/api/sales',auth,async(req,res)=>{
   try{
-    const {client_name,amount,sale_date}=req.body||{}; const value=Number(amount); const state=normalizeState(req.body?.state); const sourceId=Number(req.body?.lead_source_id||0);
+    const {client_name,amount,gross_amount,sale_date}=req.body||{}; const value=Number(amount); const gross=Number(gross_amount); const state=normalizeState(req.body?.state); const sourceId=Number(req.body?.lead_source_id||0);
     const paymentType=String(req.body?.payment_type||'').toLowerCase(); const installments=req.body?.installments?Number(req.body.installments):null;
-    if(!client_name || !Number.isFinite(value) || value<=0 || !validDate(sale_date) || !state || !STATES.includes(state) || !sourceId || !['avista','parcelado'].includes(paymentType)) return res.status(400).json({error:'Cliente, valor, data, estado, origem e forma de pagamento são obrigatórios'});
+    if(!client_name || !Number.isFinite(value) || value<=0 || !Number.isFinite(gross) || gross<=0 || !validDate(sale_date) || !state || !STATES.includes(state) || !sourceId || !['avista','parcelado'].includes(paymentType)) return res.status(400).json({error:'Cliente, valor, data, estado, origem e forma de pagamento são obrigatórios'});
     if(paymentType==='parcelado' && (!Number.isInteger(installments)||installments<2||installments>60)) return res.status(400).json({error:'Informe corretamente o número de parcelas'});
     if(req.user.role==='ranking_admin') return res.status(403).json({error:'Este acesso é somente para ranking e premiações'});
     const consultantId=req.user.role==='admin'?Number(req.body.consultant_id||0):req.user.id;
@@ -256,7 +258,7 @@ app.post('/api/sales',auth,async(req,res)=>{
     const source=await dbGet('SELECT id FROM lead_sources WHERE id=? AND active=1',[sourceId]);
     if(!c) return res.status(400).json({error:'Consultor inválido ou inativo'});
     if(!source) return res.status(400).json({error:'Origem de lead inválida ou inativa'});
-    const result=await dbRun('INSERT INTO sales (consultant_id,client_name,amount,sale_date,state,lead_source_id,payment_type,installments) VALUES (?,?,?,?,?,?,?,?)',[consultantId,String(client_name).trim(),value,sale_date,state,sourceId,paymentType,installments]);
+    const result=await dbRun('INSERT INTO sales (consultant_id,client_name,amount,gross_amount,sale_date,state,lead_source_id,payment_type,installments) VALUES (?,?,?,?,?,?,?,?,?)',[consultantId,String(client_name).trim(),value,gross,sale_date,state,sourceId,paymentType,installments]);
     res.json({id:result.lastID});
   }catch(e){console.error(e);res.status(500).json({error:'Não foi possível lançar a venda'})}
 });
@@ -267,16 +269,19 @@ app.delete('/api/sales/:id',auth,adminOnly,async(req,res)=>{
   await dbRun('DELETE FROM sales WHERE id=?',[req.params.id]);
   res.json({ok:true});
 });
-app.patch('/api/sales/:id',auth,adminOnly,async(req,res)=>{
+app.patch('/api/sales/:id',auth,async(req,res)=>{
   try{
     const s=await dbGet('SELECT * FROM sales WHERE id=?',[req.params.id]); if(!s) return res.status(404).json({error:'Venda não encontrada'});
-    const client=String(req.body?.client_name??s.client_name).trim(), amount=Number(req.body?.amount??s.amount), date=String(req.body?.sale_date??s.sale_date), state=normalizeState(req.body?.state??s.state), sourceId=Number((req.body?.lead_source_id??s.lead_source_id)||0), consultantId=Number(req.body?.consultant_id??s.consultant_id);
+    const isAdmin=req.user.role==='admin'; const isOwner=req.user.role==='consultant' && Number(s.consultant_id)===Number(req.user.id);
+    if(!isAdmin && !isOwner) return res.status(403).json({error:'Você só pode corrigir suas próprias vendas'});
+    const client=String(req.body?.client_name??s.client_name).trim(), amount=Number(req.body?.amount??s.amount), gross=Number(req.body?.gross_amount??s.gross_amount), date=String(req.body?.sale_date??s.sale_date), state=normalizeState(req.body?.state??s.state), sourceId=Number((req.body?.lead_source_id??s.lead_source_id)||0);
+    const consultantId=isAdmin?Number(req.body?.consultant_id??s.consultant_id):Number(s.consultant_id);
     const paymentType=String(req.body?.payment_type??s.payment_type??'').toLowerCase(); const installments=req.body?.installments===undefined?(s.installments?Number(s.installments):null):(req.body.installments?Number(req.body.installments):null);
-    if(!client||!Number.isFinite(amount)||amount<=0||!validDate(date)||!STATES.includes(state)||!sourceId||!consultantId||!['avista','parcelado'].includes(paymentType)) return res.status(400).json({error:'Cliente, valor, data, estado, origem, forma de pagamento e consultor são obrigatórios'});
+    if(!client||!Number.isFinite(amount)||amount<=0||!Number.isFinite(gross)||gross<=0||!validDate(date)||!STATES.includes(state)||!sourceId||!consultantId||!['avista','parcelado'].includes(paymentType)) return res.status(400).json({error:'Cliente, valor líquido, valor bruto, data, estado, origem e forma de pagamento são obrigatórios'});
     if(paymentType==='parcelado' && (!Number.isInteger(installments)||installments<2||installments>60)) return res.status(400).json({error:'Informe corretamente o número de parcelas'});
     const c=await dbGet("SELECT id FROM users WHERE id=? AND role='consultant'",[consultantId]); const src=await dbGet('SELECT id FROM lead_sources WHERE id=?',[sourceId]);
     if(!c||!src) return res.status(400).json({error:'Consultor ou origem inválidos'});
-    await dbRun('UPDATE sales SET consultant_id=?,client_name=?,amount=?,sale_date=?,state=?,lead_source_id=?,payment_type=?,installments=? WHERE id=?',[consultantId,client,amount,date,state,sourceId,paymentType,installments,s.id]); res.json({ok:true});
+    await dbRun('UPDATE sales SET consultant_id=?,client_name=?,amount=?,gross_amount=?,sale_date=?,state=?,lead_source_id=?,payment_type=?,installments=? WHERE id=?',[consultantId,client,amount,gross,date,state,sourceId,paymentType,installments,s.id]); res.json({ok:true});
   }catch(e){console.error(e);res.status(500).json({error:'Não foi possível atualizar a venda'})}
 });
 
@@ -399,39 +404,37 @@ async function prizeData(month, consultantId=null){
   const rules=await dbAll('SELECT * FROM prize_rules WHERE active=1 ORDER BY category,min_amount DESC,id');
   const sales=await dbAll(`SELECT s.*,u.name consultant_name FROM sales s JOIN users u ON u.id=s.consultant_id WHERE substr(s.sale_date,1,7)=?${consultantId?' AND s.consultant_id=?':''} ORDER BY s.sale_date ASC,s.id ASC`,consultantId?[month,consultantId]:[month]);
   const consultants=consultantId?await dbAll("SELECT id,name,goal,photo_data FROM users WHERE id=? AND role='consultant'",[consultantId]):await dbAll("SELECT id,name,goal,photo_data FROM users WHERE role='consultant' AND active=1 ORDER BY name");
-  const out=consultants.map(c=>({id:c.id,name:c.name,goal:Number(c.goal||0),photo_data:c.photo_data||null,revenue:0,sales_count:0,awards:[],lost:[],total_prize:0}));
+  const out=consultants.map(c=>({id:c.id,name:c.name,goal:Number(c.goal||0),photo_data:c.photo_data||null,revenue:0,gross_revenue:0,sales_count:0,awards:[],lost:[],total_prize:0}));
   const byId=new Map(out.map(x=>[x.id,x])); const byConsultant=new Map();
-  for(const s of sales){const c=byId.get(s.consultant_id);if(!c)continue;c.revenue+=Number(s.amount||0);c.sales_count++;if(!byConsultant.has(c.id))byConsultant.set(c.id,[]);byConsultant.get(c.id).push(s);}
+  for(const s of sales){const c=byId.get(s.consultant_id);if(!c)continue;c.revenue+=Number(s.amount||0);c.gross_revenue+=(s.gross_amount==null?0:Number(s.gross_amount));c.sales_count++;if(!byConsultant.has(c.id))byConsultant.set(c.id,[]);byConsultant.get(c.id).push(s);}
   for(const c of out){
     const ss=byConsultant.get(c.id)||[];
     // Sale-based: for a sale, take the highest matching prize in its payment bracket.
     for(const s of ss){
       let matches=[]; let legacy=false;
-      if(s.payment_type){
-        matches=rules.filter(r=>r.category==='sale' && Number(s.amount)>=Number(r.min_amount||0) && (!r.payment_type || r.payment_type===s.payment_type) &&
+      const prizeBase=s.gross_amount===null||s.gross_amount===undefined?null:Number(s.gross_amount);
+      if(prizeBase===null){
+        continue;
+      }else if(s.payment_type){
+        matches=rules.filter(r=>r.category==='sale' && prizeBase>=Number(r.min_amount||0) && (!r.payment_type || r.payment_type===s.payment_type) &&
           (!r.max_installments || (s.payment_type==='parcelado' && Number(s.installments)<=Number(r.max_installments) && (!r.min_installments || Number(s.installments)>=Number(r.min_installments)))));
-      }else{
-        // Vendas antigas não tinham forma de pagamento. Para não deixar todo o histórico sem cálculo,
-        // aplica a faixa parcelada correspondente ao valor e marca como estimativa para revisão pelo ADMIN.
-        legacy=true;
-        matches=rules.filter(r=>r.category==='sale' && r.payment_type==='parcelado' && Number(s.amount)>=Number(r.min_amount||0));
       }
       const best=matches.sort((a,b)=>Number(b.min_amount)-Number(a.min_amount)||Number(b.prize_amount)-Number(a.prize_amount))[0];
       if(best && Number(best.prize_amount)>0){
-        const detail=legacy?`Venda histórica de ${moneyJs(s.amount)} — faixa parcelada aplicada por valor; revise a forma de pagamento se necessário`:`Venda de ${moneyJs(s.amount)}${s.payment_type==='parcelado'?` em ${s.installments}x`:' à vista'}`;
+        const detail=legacy?`Venda histórica de ${moneyJs(prizeBase)} — faixa parcelada aplicada por valor; revise a forma de pagamento se necessário`:`Venda de ${moneyJs(prizeBase)}${s.payment_type==='parcelado'?` em ${s.installments}x`:' à vista'}`;
         c.awards.push({rule_id:best.id,rule_name:best.name,amount:Number(best.prize_amount),date:s.sale_date,reason:detail,estimated:legacy});
       }
     }
     // Daily and weekly accumulations.
     const days={}; ss.forEach(s=>(days[s.sale_date]??=[]).push(s));
     for(const [day,ds] of Object.entries(days)){
-      const total=ds.reduce((a,s)=>a+Number(s.amount),0);
+      const total=ds.reduce((a,s)=>a+(s.gross_amount==null?0:Number(s.gross_amount)),0);
       const best=rules.filter(r=>r.category==='daily'&&total>=Number(r.min_amount)).sort((a,b)=>Number(b.min_amount)-Number(a.min_amount))[0];
       if(best&&Number(best.prize_amount)>0)c.awards.push({rule_id:best.id,rule_name:best.name,amount:Number(best.prize_amount),date:day,reason:`Acumulado do dia: ${moneyJs(total)}`});
     }
     const weeks={};ss.forEach(s=>{const w=weekStart(s.sale_date);(weeks[w]??=[]).push(s)});
     for(const [w,ws] of Object.entries(weeks)){
-      const total=ws.reduce((a,s)=>a+Number(s.amount),0);
+      const total=ws.reduce((a,s)=>a+(s.gross_amount==null?0:Number(s.gross_amount)),0);
       const best=rules.filter(r=>r.category==='weekly'&&total>=Number(r.min_amount)).sort((a,b)=>Number(b.min_amount)-Number(a.min_amount))[0];
       if(best&&Number(best.prize_amount)>0)c.awards.push({rule_id:best.id,rule_name:best.name,amount:Number(best.prize_amount),date:w,reason:`Acumulado semanal: ${moneyJs(total)}`});
       const weekdays=new Set(ws.map(s=>dateOnly(s.sale_date).getUTCDay()).filter(d=>d>=1&&d<=5));
@@ -439,15 +442,30 @@ async function prizeData(month, consultantId=null){
       if(all&&Number(all.prize_amount)>0)c.awards.push({rule_id:all.id,rule_name:all.name,amount:Number(all.prize_amount),date:w,reason:'Venda registrada em todos os dias úteis da semana'});
     }
   }
-  // Daily meta ranking across all consultants in selected month.
+  // Daily team target + ranking: first check whether the WHOLE TEAM reached the daily target.
+  // If the team reaches the target, the consultant with the highest gross sales gets 1st-place prize
+  // and the second-highest consultant with sales gets 2nd-place prize. The individual consultant
+  // does NOT need to reach the target alone.
   const dailyRule1=rules.find(r=>r.category==='daily_rank' && /1º/.test(r.name)); const dailyRule2=rules.find(r=>r.category==='daily_rank' && /2º/.test(r.name));
   if(dailyRule1||dailyRule2){
     const activeIds=new Set(out.map(x=>x.id)); const byDay={};
-    sales.filter(s=>activeIds.has(s.consultant_id)).forEach(s=>{(byDay[s.sale_date]??={});byDay[s.sale_date][s.consultant_id]=(byDay[s.sale_date][s.consultant_id]||0)+Number(s.amount)});
+    sales.filter(s=>activeIds.has(s.consultant_id)).forEach(s=>{
+      (byDay[s.sale_date]??={});
+      byDay[s.sale_date][s.consultant_id]=(byDay[s.sale_date][s.consultant_id]||0)+(s.gross_amount==null?0:Number(s.gross_amount));
+    });
+    const teamTarget=Number(dailyRule1?.min_amount||dailyRule2?.min_amount||7500);
     for(const [day,vals] of Object.entries(byDay)){
-      const hit=Object.entries(vals).filter(([,v])=>v>=7500).sort((a,b)=>b[1]-a[1]);
-      if(hit[0]&&dailyRule1){const c=byId.get(Number(hit[0][0]));if(c&&Number(dailyRule1.prize_amount)>0)c.awards.push({rule_id:dailyRule1.id,rule_name:dailyRule1.name,amount:Number(dailyRule1.prize_amount),date:day,reason:`1º lugar do dia com ${moneyJs(hit[0][1])}`})}
-      if(hit[1]&&dailyRule2){const c=byId.get(Number(hit[1][0]));if(c&&Number(dailyRule2.prize_amount)>0)c.awards.push({rule_id:dailyRule2.id,rule_name:dailyRule2.name,amount:Number(dailyRule2.prize_amount),date:day,reason:`2º lugar do dia com ${moneyJs(hit[1][1])}`})}
+      const teamTotal=Object.values(vals).reduce((a,v)=>a+Number(v||0),0);
+      if(teamTotal<teamTarget) continue;
+      const ranking=Object.entries(vals).filter(([,v])=>Number(v)>0).sort((a,b)=>Number(b[1])-Number(a[1]));
+      if(ranking[0]&&dailyRule1){
+        const c=byId.get(Number(ranking[0][0]));
+        if(c&&Number(dailyRule1.prize_amount)>0)c.awards.push({rule_id:dailyRule1.id,rule_name:dailyRule1.name,amount:Number(dailyRule1.prize_amount),date:day,reason:`1º lugar do dia — equipe ${moneyJs(teamTotal)}; consultora ${moneyJs(ranking[0][1])}`});
+      }
+      if(ranking[1]&&dailyRule2){
+        const c=byId.get(Number(ranking[1][0]));
+        if(c&&Number(dailyRule2.prize_amount)>0)c.awards.push({rule_id:dailyRule2.id,rule_name:dailyRule2.name,amount:Number(dailyRule2.prize_amount),date:day,reason:`2º lugar do dia — equipe ${moneyJs(teamTotal)}; consultora ${moneyJs(ranking[1][1])}`});
+      }
     }
   }
   out.forEach(c=>{c.total_prize=c.awards.reduce((a,x)=>a+Number(x.amount),0);c.awards.sort((a,b)=>String(b.date).localeCompare(String(a.date))||b.amount-a.amount)});
@@ -468,7 +486,7 @@ app.patch('/api/prize-rules/:id',auth,adminOnly,async(req,res)=>{
 });
 app.get('/api/supervisor-prizes',auth,rankingAdminOrAdmin,async(req,res)=>{
   const month=validMonth(req.query.month);const cfg=await dbAll('SELECT * FROM supervisor_prize_settings ORDER BY id');const by=Object.fromEntries(cfg.map(x=>[x.name,{value:Number(x.value),active:!!x.active}]));
-  const rows=await dbAll(`SELECT sale_date,COALESCE(SUM(amount),0) revenue,COUNT(*) sales FROM sales WHERE substr(sale_date,1,7)=? GROUP BY sale_date ORDER BY sale_date`,[month]);
+  const rows=await dbAll(`SELECT sale_date,COALESCE(SUM(gross_amount),0) revenue,COUNT(*) sales FROM sales WHERE substr(sale_date,1,7)=? GROUP BY sale_date ORDER BY sale_date`,[month]);
   const dailyGoal=by.daily_goal?.value??5715, weeklyGoal=by.weekly_goal?.value??28600, dailyPrize=by.daily_prize?.value??50, weeklyPrize=by.weekly_prize?.value??100;
   const daily=rows.map(r=>({...r,revenue:Number(r.revenue),sales:Number(r.sales),hit:Number(r.revenue)>=dailyGoal,prize:Number(r.revenue)>=dailyGoal?dailyPrize:0}));
   const weeks={};rows.forEach(r=>(weeks[weekStart(r.sale_date)]??=[]).push(r));const weekly=Object.entries(weeks).map(([start,rs])=>{const revenue=rs.reduce((a,r)=>a+Number(r.revenue),0);return {week_start:start,revenue,hit:revenue>=weeklyGoal,prize:revenue>=weeklyGoal?weeklyPrize:0}});
