@@ -503,7 +503,7 @@ app.get('/api/prizes',auth,async(req,res)=>{
   try{const month=validMonth(req.query.month);const cid=['admin','ranking_admin'].includes(req.user.role)?(Number(req.query.consultant_id||0)||null):req.user.id;res.json(await prizeData(month,cid));}
   catch(e){console.error('prizes',e);res.status(500).json({error:'Não foi possível calcular as premiações'})}
 });
-app.get('/api/prize-rules',auth,adminOnly,async(req,res)=>res.json(await dbAll('SELECT * FROM prize_rules ORDER BY active DESC,category,min_amount,id')));
+app.get('/api/prize-rules',auth,async(req,res)=>res.json(await dbAll('SELECT * FROM prize_rules ORDER BY active DESC,category,min_amount,id')));
 app.post('/api/prize-rules',auth,adminOnly,async(req,res)=>{
   try{const b=req.body||{};if(!b.name||!b.category)return res.status(400).json({error:'Nome e categoria são obrigatórios'});const r=await dbRun('INSERT INTO prize_rules(name,category,frequency,payment_type,min_amount,max_installments,min_installments,min_days,prize_amount,active,description) VALUES(?,?,?,?,?,?,?,?,?,?,?)',[String(b.name).trim(),String(b.category),String(b.frequency||b.category),b.payment_type||null,Number(b.min_amount||0),b.max_installments?Number(b.max_installments):null,b.min_installments?Number(b.min_installments):null,b.min_days?Number(b.min_days):null,Number(b.prize_amount||0),b.active===false?0:1,b.description||null]);res.json({id:r.lastID})}catch(e){res.status(400).json({error:'Não foi possível cadastrar a regra'})}
 });
