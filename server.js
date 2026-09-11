@@ -64,6 +64,7 @@ async function init(){
     consultant_id INTEGER NOT NULL REFERENCES users(id),
     client_name TEXT NOT NULL,
     client_age INTEGER,
+    birth_date TEXT,
     amount REAL NOT NULL,
     gross_amount REAL,
     sale_date TEXT NOT NULL,
@@ -87,6 +88,7 @@ async function init(){
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
   await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS client_age INTEGER`);
+  await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS birth_date TEXT`);
   await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS gross_amount REAL`);
   await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_type TEXT`);
   await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS installments INTEGER`);
@@ -184,6 +186,15 @@ function rankingAdminOrAdmin(req,res,next){
 }
 function validMonth(value){return /^\d{4}-\d{2}$/.test(value||'')?value:new Date().toISOString().slice(0,7)}
 function validDate(value){return /^\d{4}-\d{2}-\d{2}$/.test(value||'')}
+function calculateAge(birthDate,referenceDate){
+  if(!validDate(birthDate)||!validDate(referenceDate)) return null;
+  const b=new Date(birthDate+'T00:00:00Z'), r=new Date(referenceDate+'T00:00:00Z');
+  if(Number.isNaN(b.getTime())||Number.isNaN(r.getTime())||b>r) return null;
+  let age=r.getUTCFullYear()-b.getUTCFullYear();
+  const beforeBirthday=r.getUTCMonth()<b.getUTCMonth() || (r.getUTCMonth()===b.getUTCMonth() && r.getUTCDate()<b.getUTCDate());
+  if(beforeBirthday) age--;
+  return age;
+}
 function normalizeState(value){return String(value||'').trim().toUpperCase()}
 const STATES=['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 function monthBounds(month){return {start:`${month}-01`,next:`${monthNext(month)}-01`}}
@@ -241,7 +252,7 @@ app.get('/api/ranking',auth,async(req,res)=>{
 app.get('/api/sales',auth,async(req,res)=>{
   const month=validMonth(req.query.month); const p=[month]; let extra='';
   if(!['admin','ranking_admin'].includes(req.user.role)){extra=' AND s.consultant_id=?';p.push(req.user.id)}
-  const rows=await dbAll(`SELECT s.id,s.client_name,s.client_age,s.amount,s.gross_amount,s.sale_date,s.state,s.lead_source_id,s.payment_type,s.installments,ls.name lead_source_name,u.name consultant_name,u.id consultant_id
+  const rows=await dbAll(`SELECT s.id,s.client_name,s.client_age,s.birth_date,s.amount,s.gross_amount,s.sale_date,s.state,s.lead_source_id,s.payment_type,s.installments,ls.name lead_source_name,u.name consultant_name,u.id consultant_id
     FROM sales s JOIN users u ON u.id=s.consultant_id LEFT JOIN lead_sources ls ON ls.id=s.lead_source_id
     WHERE substr(s.sale_date,1,7)=?${extra} ORDER BY s.sale_date DESC,s.id DESC`,p);
   res.json(rows.map(r=>({...r,amount:Number(r.amount),gross_amount:r.gross_amount===null||r.gross_amount===undefined?null:Number(r.gross_amount)})));
@@ -249,9 +260,10 @@ app.get('/api/sales',auth,async(req,res)=>{
 
 app.post('/api/sales',auth,async(req,res)=>{
   try{
-    const {client_name,client_age,amount,gross_amount,sale_date}=req.body||{}; const age=Number(client_age); const value=Number(amount); const gross=Number(gross_amount); const state=normalizeState(req.body?.state); const sourceId=Number(req.body?.lead_source_id||0);
+    const {client_name,birth_date,amount,gross_amount,sale_date}=req.body||{}; const birthDate=String(birth_date||''); const value=Number(amount); const gross=Number(gross_amount); const state=normalizeState(req.body?.state); const sourceId=Number(req.body?.lead_source_id||0);
+    const age=calculateAge(birthDate,sale_date);
     const paymentType=String(req.body?.payment_type||'').toLowerCase(); const installments=req.body?.installments?Number(req.body.installments):null;
-    if(!client_name || !Number.isInteger(age) || age<18 || age>120 || !Number.isFinite(value) || value<=0 || !Number.isFinite(gross) || gross<=0 || !validDate(sale_date) || !state || !STATES.includes(state) || !sourceId || !['avista','parcelado'].includes(paymentType)) return res.status(400).json({error:'Cliente, idade (18 a 120), valores, data, estado, origem e forma de pagamento são obrigatórios'});
+    if(!client_name || !validDate(birthDate) || !Number.isInteger(age) || age<18 || age>120 || !Number.isFinite(value) || value<=0 || !Number.isFinite(gross) || gross<=0 || !validDate(sale_date) || !state || !STATES.includes(state) || !sourceId || !['avista','parcelado'].includes(paymentType)) return res.status(400).json({error:'Cliente, data de nascimento, valores, data, estado, origem e forma de pagamento são obrigatórios'});
     if(paymentType==='parcelado' && (!Number.isInteger(installments)||installments<2||installments>60)) return res.status(400).json({error:'Informe corretamente o número de parcelas'});
     if(req.user.role==='ranking_admin') return res.status(403).json({error:'Este acesso é somente para ranking e premiações'});
     const consultantId=req.user.role==='admin'?Number(req.body.consultant_id||0):req.user.id;
@@ -260,7 +272,7 @@ app.post('/api/sales',auth,async(req,res)=>{
     const source=await dbGet('SELECT id FROM lead_sources WHERE id=? AND active=1',[sourceId]);
     if(!c) return res.status(400).json({error:'Consultor inválido ou inativo'});
     if(!source) return res.status(400).json({error:'Origem de lead inválida ou inativa'});
-    const result=await dbRun('INSERT INTO sales (consultant_id,client_name,client_age,amount,gross_amount,sale_date,state,lead_source_id,payment_type,installments) VALUES (?,?,?,?,?,?,?,?,?,?)',[consultantId,String(client_name).trim(),age,value,gross,sale_date,state,sourceId,paymentType,installments]);
+    const result=await dbRun('INSERT INTO sales (consultant_id,client_name,client_age,birth_date,amount,gross_amount,sale_date,state,lead_source_id,payment_type,installments) VALUES (?,?,?,?,?,?,?,?,?,?,?)',[consultantId,String(client_name).trim(),age,birthDate,value,gross,sale_date,state,sourceId,paymentType,installments]);
     res.json({id:result.lastID});
   }catch(e){console.error(e);res.status(500).json({error:'Não foi possível lançar a venda'})}
 });
@@ -276,14 +288,15 @@ app.patch('/api/sales/:id',auth,async(req,res)=>{
     const s=await dbGet('SELECT * FROM sales WHERE id=?',[req.params.id]); if(!s) return res.status(404).json({error:'Venda não encontrada'});
     const isAdmin=req.user.role==='admin'; const isOwner=req.user.role==='consultant' && Number(s.consultant_id)===Number(req.user.id);
     if(!isAdmin && !isOwner) return res.status(403).json({error:'Você só pode corrigir suas próprias vendas'});
-    const client=String(req.body?.client_name??s.client_name).trim(), age=Number(req.body?.client_age??s.client_age), amount=Number(req.body?.amount??s.amount), gross=Number(req.body?.gross_amount??s.gross_amount), date=String(req.body?.sale_date??s.sale_date), state=normalizeState(req.body?.state??s.state), sourceId=Number((req.body?.lead_source_id??s.lead_source_id)||0);
+    const client=String(req.body?.client_name??s.client_name).trim(), birthDate=String(req.body?.birth_date??s.birth_date??''), amount=Number(req.body?.amount??s.amount), gross=Number(req.body?.gross_amount??s.gross_amount), date=String(req.body?.sale_date??s.sale_date), state=normalizeState(req.body?.state??s.state), sourceId=Number((req.body?.lead_source_id??s.lead_source_id)||0);
+    const age=calculateAge(birthDate,date);
     const consultantId=isAdmin?Number(req.body?.consultant_id??s.consultant_id):Number(s.consultant_id);
     const paymentType=String(req.body?.payment_type??s.payment_type??'').toLowerCase(); const installments=req.body?.installments===undefined?(s.installments?Number(s.installments):null):(req.body.installments?Number(req.body.installments):null);
-    if(!client||!Number.isInteger(age)||age<18||age>120||!Number.isFinite(amount)||amount<=0||!Number.isFinite(gross)||gross<=0||!validDate(date)||!STATES.includes(state)||!sourceId||!consultantId||!['avista','parcelado'].includes(paymentType)) return res.status(400).json({error:'Cliente, idade (18 a 120), valores, data, estado, origem e forma de pagamento são obrigatórios'});
+    if(!client||!validDate(birthDate)||!Number.isInteger(age)||age<18||age>120||!Number.isFinite(amount)||amount<=0||!Number.isFinite(gross)||gross<=0||!validDate(date)||!STATES.includes(state)||!sourceId||!consultantId||!['avista','parcelado'].includes(paymentType)) return res.status(400).json({error:'Cliente, data de nascimento, valores, data, estado, origem e forma de pagamento são obrigatórios'});
     if(paymentType==='parcelado' && (!Number.isInteger(installments)||installments<2||installments>60)) return res.status(400).json({error:'Informe corretamente o número de parcelas'});
     const c=await dbGet("SELECT id FROM users WHERE id=? AND role='consultant'",[consultantId]); const src=await dbGet('SELECT id FROM lead_sources WHERE id=?',[sourceId]);
     if(!c||!src) return res.status(400).json({error:'Consultor ou origem inválidos'});
-    await dbRun('UPDATE sales SET consultant_id=?,client_name=?,client_age=?,amount=?,gross_amount=?,sale_date=?,state=?,lead_source_id=?,payment_type=?,installments=? WHERE id=?',[consultantId,client,age,amount,gross,date,state,sourceId,paymentType,installments,s.id]); res.json({ok:true});
+    await dbRun('UPDATE sales SET consultant_id=?,client_name=?,client_age=?,birth_date=?,amount=?,gross_amount=?,sale_date=?,state=?,lead_source_id=?,payment_type=?,installments=? WHERE id=?',[consultantId,client,age,birthDate,amount,gross,date,state,sourceId,paymentType,installments,s.id]); res.json({ok:true});
   }catch(e){console.error(e);res.status(500).json({error:'Não foi possível atualizar a venda'})}
 });
 
