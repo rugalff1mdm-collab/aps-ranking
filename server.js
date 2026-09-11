@@ -155,6 +155,9 @@ async function init(){
   // Corrige a inversão antiga das metas do supervisor, sem mexer em valores que o ADMIN já tenha personalizado.
   await pool.query(`UPDATE supervisor_prize_settings SET value=5715 WHERE name='daily_goal' AND value=28600`);
   await pool.query(`UPDATE supervisor_prize_settings SET value=28600 WHERE name='weekly_goal' AND value=5715`);
+  // Padroniza os nomes das premiações de meta diária para não aparecerem como acumulado diário.
+  await pool.query(`UPDATE prize_rules SET name='Meta diária — 1º lugar', description='Meta da equipe de R$ 7.500 no dia; 1º lugar em faturamento bruto' WHERE category='daily_rank' AND prize_amount=50`);
+  await pool.query(`UPDATE prize_rules SET name='Meta diária — 2º lugar', description='Meta da equipe de R$ 7.500 no dia; 2º lugar em faturamento bruto' WHERE category='daily_rank' AND prize_amount=30`);
 
 
   for(const name of ['Daniel','Tom','Remalho']){
@@ -298,6 +301,12 @@ app.patch('/api/sales/:id',auth,async(req,res)=>{
     if(!c||!src) return res.status(400).json({error:'Consultor ou origem inválidos'});
     await dbRun('UPDATE sales SET consultant_id=?,client_name=?,client_age=?,birth_date=?,amount=?,gross_amount=?,sale_date=?,state=?,lead_source_id=?,payment_type=?,installments=? WHERE id=?',[consultantId,client,age,birthDate,amount,gross,date,state,sourceId,paymentType,installments,s.id]); res.json({ok:true});
   }catch(e){console.error(e);res.status(500).json({error:'Não foi possível atualizar a venda'})}
+});
+
+app.get('/api/ranking-admins',auth,async(req,res)=>{
+  if(!['admin','ranking_admin'].includes(req.user.role)) return res.status(403).json({error:'Acesso restrito'});
+  const rows=await dbAll("SELECT id,name,email,active,created_at FROM users WHERE role='ranking_admin' ORDER BY active DESC,name ASC");
+  res.json(rows);
 });
 
 app.get('/api/users',auth,adminOnly,async(req,res)=>{
@@ -455,13 +464,13 @@ async function prizeData(month, consultantId=null){
     const days={}; ss.forEach(s=>(days[s.sale_date]??=[]).push(s));
     for(const [day,ds] of Object.entries(days)){
       const total=ds.reduce((a,s)=>a+(s.gross_amount==null?0:Number(s.gross_amount)),0);
-      const best=rules.filter(r=>r.category==='daily'&&total>=Number(r.min_amount)).sort((a,b)=>Number(b.min_amount)-Number(a.min_amount))[0];
+      const best=ds.length>=2 ? rules.filter(r=>r.category==='daily'&&total>=Number(r.min_amount)).sort((a,b)=>Number(b.min_amount)-Number(a.min_amount))[0] : null;
       if(best&&Number(best.prize_amount)>0)c.awards.push({rule_id:best.id,rule_name:best.name,amount:Number(best.prize_amount),date:day,reason:`Acumulado do dia: ${moneyJs(total)}`});
     }
     const weeks={};ss.forEach(s=>{const w=weekStart(s.sale_date);(weeks[w]??=[]).push(s)});
     for(const [w,ws] of Object.entries(weeks)){
       const total=ws.reduce((a,s)=>a+(s.gross_amount==null?0:Number(s.gross_amount)),0);
-      const best=rules.filter(r=>r.category==='weekly'&&total>=Number(r.min_amount)).sort((a,b)=>Number(b.min_amount)-Number(a.min_amount))[0];
+      const best=ws.length>=2 ? rules.filter(r=>r.category==='weekly'&&total>=Number(r.min_amount)).sort((a,b)=>Number(b.min_amount)-Number(a.min_amount))[0] : null;
       if(best&&Number(best.prize_amount)>0)c.awards.push({rule_id:best.id,rule_name:best.name,amount:Number(best.prize_amount),date:w,reason:`Acumulado semanal: ${moneyJs(total)}`});
       const weekdays=new Set(ws.map(s=>dateOnly(s.sale_date).getUTCDay()).filter(d=>d>=1&&d<=5));
       const all=rules.filter(r=>r.category==='all_days'&&weekdays.size>=5).sort((a,b)=>Number(b.prize_amount)-Number(a.prize_amount))[0];
@@ -471,8 +480,9 @@ async function prizeData(month, consultantId=null){
   // Daily meta ranking across all consultants in selected month.
   const dailyRule1=rules.find(r=>r.category==='daily_rank' && /1º/.test(r.name)); const dailyRule2=rules.find(r=>r.category==='daily_rank' && /2º/.test(r.name));
   if(dailyRule1||dailyRule2){
-    const activeIds=new Set(out.map(x=>x.id)); const byDay={};
-    sales.filter(s=>activeIds.has(s.consultant_id)).forEach(s=>{(byDay[s.sale_date]??={});byDay[s.sale_date][s.consultant_id]=(byDay[s.sale_date][s.consultant_id]||0)+(s.gross_amount==null?0:Number(s.gross_amount))});
+    const activeConsultants=await dbAll("SELECT id FROM users WHERE role='consultant' AND active=1");
+    const activeIds=new Set(activeConsultants.map(x=>Number(x.id))); const byDay={};
+    sales.filter(s=>activeIds.has(Number(s.consultant_id))).forEach(s=>{(byDay[s.sale_date]??={});byDay[s.sale_date][s.consultant_id]=(byDay[s.sale_date][s.consultant_id]||0)+(s.gross_amount==null?0:Number(s.gross_amount))});
     for(const [day,vals] of Object.entries(byDay)){
       // A meta de R$ 7.500 é da EQUIPE no dia. Depois de bater a meta,
       // 1º e 2º lugares são definidos pelo faturamento bruto individual.
