@@ -127,18 +127,3 @@ O frontend atualiza os dados a cada 10 segundos sem exigir recarga manual da pá
 ## Observação sobre conversão
 
 Conversão verdadeira depende de **leads registrados**. Vendas antigas continuam preservadas, mas sem origem/estado/leads associados não devem ser usadas para inventar uma conversão detalhada.
-
-## Hospedagem em nuvem (Supabase + Render)
-Esta versão usa PostgreSQL via `DATABASE_URL`. O script `migrate-sqlite-to-postgres.js` migra o banco SQLite existente para o PostgreSQL do Supabase.
-
-
-## V8.2 — Premiações mensais
-- Mantém todas as vendas existentes no banco.
-- Premiações calculadas por competência (`YYYY-MM`) sem apagar meses anteriores.
-- Nova área `Premiações`: consultor vê somente suas premiações; ADMIN vê a equipe inteira.
-- Área `Supervisor` exclusiva do ADMIN.
-- Regras de premiação ficam configuráveis no banco pelo ADMIN.
-- Vendas novas possuem forma de pagamento (à vista/parcelado) e número de parcelas.
-- Regras de perda de premiação ficam registradas por mês.
-- Vendas antigas sem forma de pagamento não são classificadas automaticamente como à vista ou parceladas, evitando premiação indevida; elas continuam válidas para metas e acumulados.
-- Configuração inicial do supervisor: meta diária R$ 28.600, prêmio diário R$ 50; meta semanal R$ 5.715, prêmio semanal R$ 100. Os valores podem ser alterados no sistema.
