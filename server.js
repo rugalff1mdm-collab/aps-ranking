@@ -165,10 +165,17 @@ async function init(){
   }
   const email=(process.env.ADMIN_EMAIL || 'admin@aps.local').trim().toLowerCase();
   const password=process.env.ADMIN_PASSWORD || '123456';
-  const existing=(await pool.query("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1")).rows[0];
+  const existing=(await pool.query("SELECT * FROM users WHERE role='admin' ORDER BY id LIMIT 1")).rows[0];
   if(!existing){
     const hash=await bcrypt.hash(password,10);
-    await pool.query('INSERT INTO users (name,email,password_hash,role,goal) VALUES ($1,$2,$3,$4,$5)',['Administrador',email,hash,'admin',0]);
+    await pool.query('INSERT INTO users (name,email,password_hash,role,goal,active) VALUES ($1,$2,$3,$4,$5,1)',['Administrador',email,hash,'admin',0]);
+    console.log(`Admin inicial criado: ${email}`);
+  } else if(process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD){
+    // Se o Render tiver ADMIN_EMAIL/ADMIN_PASSWORD configurados, sincroniza o admin existente.
+    // Isso corrige bancos antigos onde a senha/e-mail foram criados antes das variáveis atuais.
+    const hash=await bcrypt.hash(password,10);
+    await pool.query('UPDATE users SET email=$1,password_hash=$2,active=1 WHERE id=$3',[email,hash,existing.id]);
+    console.log(`Admin sincronizado pelas variáveis do Render: ${email}`);
   }
 }
 
