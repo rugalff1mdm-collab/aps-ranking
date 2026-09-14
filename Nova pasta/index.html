@@ -8,7 +8,8 @@
 *{box-sizing:border-box}html,body{margin:0;width:100%;min-height:100%;overflow-x:auto}body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}button,input,select{font:inherit}.hidden{display:none!important}.muted{color:var(--muted);font-size:13px}.eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;font-weight:900;color:#8b98ad}.brand-title{line-height:.92;letter-spacing:-.055em}.brand-title .company{display:block;font-size:28px;font-weight:950}.brand-title .sub{display:block;margin-top:5px;font-size:13px;letter-spacing:.16em;font-weight:800;color:#93a4bd}
 .login{min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 15% 15%,#dce8ff 0,transparent 34%),radial-gradient(circle at 85% 85%,#e7edff 0,transparent 32%),var(--bg)}.login-card{width:min(460px,100%);background:#fff;border:1px solid var(--line);border-radius:26px;padding:38px;box-shadow:0 24px 80px rgba(16,24,40,.12)}.login-brand{margin-bottom:28px}.login-card h1{font-size:30px;margin:0 0 8px;letter-spacing:-.04em}.login-card .btn{width:100%;margin-top:22px}.login-help{margin-top:16px;padding:12px 14px;border-radius:12px;background:#f8fafc;border:1px solid var(--line);font-size:12px;color:var(--muted)}
 label{display:block;font-size:12px;font-weight:850;margin:16px 0 7px}input,select{width:100%;padding:12px 13px;border:1px solid #d6dce7;border-radius:11px;outline:0;background:#fff;color:var(--text)}input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 4px #2457d61a}.btn{border:0;border-radius:11px;padding:11px 15px;font-weight:850;cursor:pointer;transition:.15s transform,.15s box-shadow}.btn:hover{transform:translateY(-1px)}.primary{background:var(--accent);color:#fff;box-shadow:0 6px 16px #2457d62b}.ghost{background:#fff;color:var(--text);border:1px solid var(--line)}.danger{background:#fee4e2;color:var(--danger);border:1px solid #fecdca}.success{background:#ecfdf3;color:#027a48}.error{color:var(--danger);font-size:13px;margin-top:12px}
-.sidebar{position:fixed;inset:0 auto 0 0;width:258px;box-sizing:border-box;background:linear-gradient(180deg,#0d1628,#111d33);color:#fff;padding:26px 18px;z-index:5}.sidebar-brand{padding:0 10px 30px}.nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;color:#bdc8da;border:0;padding:12px 13px;border-radius:11px;margin:4px 0;cursor:pointer;font-weight:800}.nav button.active,.nav button:hover{background:#ffffff12;color:#fff}.nav-section{margin:22px 10px 7px;color:#64748b;font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:900}
+.sidebar{position:fixed;inset:0 auto 0 0;width:258px;box-sizing:border-box;background:linear-gradient(180deg,#0d1628,#111d33);color:#fff;padding:26px 18px;z-index:5}.sidebar-brand{padding:0 10px 30px}.sidebar-toggle{width:42px;height:38px;margin:0 0 18px auto;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:5px;border:1px solid #ffffff22;border-radius:10px;background:#2457d6;color:#fff;cursor:pointer;box-shadow:0 5px 14px #0003}.sidebar-toggle span{display:block;width:19px;height:2px;background:#fff;border-radius:3px}.sidebar.collapsed{width:76px;padding:18px 10px}.sidebar.collapsed .sidebar-toggle{margin:0 auto 18px}.sidebar.collapsed .sidebar-brand{padding:0 0 20px;text-align:center;overflow:hidden}.sidebar.collapsed .brand-title .company{font-size:0}.sidebar.collapsed .brand-title .company:after{content:"APS";font-size:18px;letter-spacing:-.04em}.sidebar.collapsed .brand-title .sub{display:none}.sidebar.collapsed .nav button{justify-content:center;padding:12px 7px}.sidebar.collapsed .nav button span{display:none}.sidebar.collapsed .nav button{font-size:18px}.sidebar.collapsed + .bottom-hscroll{left:76px}.sidebar.collapsed ~ .main{margin-left:76px;width:calc(100% - 76px)}
+.nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;color:#bdc8da;border:0;padding:12px 13px;border-radius:11px;margin:4px 0;cursor:pointer;font-weight:800}.nav button.active,.nav button:hover{background:#ffffff12;color:#fff}.nav-section{margin:22px 10px 7px;color:#64748b;font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:900}
 .main{margin-left:258px;padding:30px;max-width:none;width:calc(100% - 258px);box-sizing:border-box;min-width:900px;position:relative;z-index:1;overflow-x:visible}.main>*{max-width:100%;min-width:0}.top{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:24px}.page-title{margin:0;font-size:28px;letter-spacing:-.04em}.top-right{display:flex;align-items:center;gap:9px}.month{width:160px}.cards{display:grid;grid-template-columns:repeat(6,1fr);gap:13px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:17px;box-shadow:var(--shadow);min-width:0}.card .value{font-size:23px;font-weight:950;letter-spacing:-.03em;margin-top:7px}.card .label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:900;color:#8390a4}.card.accent{background:linear-gradient(135deg,#173f9f,#2457d6);color:#fff;border-color:#2457d6}.card.accent .label{color:#dce7ff}.card.accent .muted{color:#dce7ff}
 .grid{display:grid;grid-template-columns:1.55fr 1fr;gap:16px;margin-top:16px}.grid.equal{grid-template-columns:1fr 1fr}.panel{background:var(--card);border:1px solid var(--line);border-radius:17px;padding:19px;box-shadow:var(--shadow);min-width:0}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}.panel h3{margin:0;font-size:16px;letter-spacing:-.02em}.actions-inline{display:flex;gap:8px;flex-wrap:wrap}.filters{display:grid;grid-template-columns:repeat(4,1fr) auto;gap:10px;align-items:end}.filters label{margin:0}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px}.data-table{width:100%;border-collapse:collapse;min-width:680px}.data-table th,.data-table td{padding:11px 12px;border-bottom:1px solid var(--line);text-align:left;font-size:13px;white-space:nowrap}.data-table th{background:#f8fafc;color:#667085;font-size:10px;letter-spacing:.08em;text-transform:uppercase}.data-table tr:last-child td{border-bottom:0}.num{text-align:right!important}.rank-row{display:grid;grid-template-columns:44px 1fr 130px 75px 110px;align-items:center;gap:10px;padding:13px 0;border-bottom:1px solid var(--line)}.rank-row:last-child{border-bottom:0}.pos{font-weight:950;font-size:20px;text-align:center}.consultant{display:flex;align-items:center;gap:11px;min-width:0}.avatar{width:42px;height:42px;border-radius:50%;object-fit:cover;background:#e8edf7;display:grid;place-items:center;font-weight:950;color:#335}.name{font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bar{height:6px;background:#edf1f6;border-radius:20px;overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:linear-gradient(90deg,#2457d6,#6d8fe8);border-radius:20px}.right{text-align:right}.sale{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}.sale:last-child{border:0}.sale strong{display:block}.sale .meta{display:block;margin-top:3px}.amount{font-weight:950}.badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#ecfdf3;color:#027a48;font-size:10px;font-weight:900}.badge.off{background:#f2f4f7;color:#667085}.mini-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.mini-stat{padding:13px;border:1px solid var(--line);border-radius:13px;background:#fafbfc}.mini-stat strong{display:block;font-size:19px;margin-top:4px}.section-spacer{margin-top:16px}
 .admin-login-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}.admin-login-row:last-child{border-bottom:0}.admin-login-name{display:flex;align-items:center;gap:10px}.admin-dot{width:9px;height:9px;border-radius:50%;background:#12b76a}.admin-dot.off{background:#98a2b3}.team-card{display:grid;grid-template-columns:54px 1fr auto;gap:14px;align-items:center;padding:13px 0;border-bottom:1px solid var(--line)}.team-card:last-child{border-bottom:0}.team-card img{width:50px;height:50px;border-radius:50%;object-fit:cover;background:#eef2f7}.team-actions{display:flex;gap:7px;align-items:center}.source-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}.source-row:last-child{border:0}
@@ -22,6 +23,7 @@ label{display:block;font-size:12px;font-weight:850;margin:16px 0 7px}input,selec
 @media(max-width:560px){.prize-grid,.super-grid{grid-template-columns:1fr}}
 @media(max-width:560px){.cards{grid-template-columns:1fr}.filters{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.form-grid .full{grid-column:auto}.login-card{padding:27px}.rank-row{grid-template-columns:30px 1fr 92px}.rank-row .hide-sm{display:none}.panel{padding:15px}.big-ranking{padding:18px}.big-head h2{font-size:24px}.actions-inline .btn{flex:1}}
 body::-webkit-scrollbar{height:14px}body::-webkit-scrollbar-track{background:#e9edf4}body::-webkit-scrollbar-thumb{background:#8a96a8;border-radius:10px;border:3px solid #e9edf4}body::-webkit-scrollbar-thumb:hover{background:#667085}
+.bottom-hscroll{position:fixed;left:258px;right:0;bottom:0;height:18px;background:#dfe4ec;border-top:1px solid #cbd3df;z-index:100;overflow-x:scroll;overflow-y:hidden;display:none;box-shadow:0 -2px 8px rgba(16,24,40,.12)}.bottom-hscroll::-webkit-scrollbar{height:18px}.bottom-hscroll::-webkit-scrollbar-track{background:#e9edf4}.bottom-hscroll::-webkit-scrollbar-thumb{background:#7b8798;border-radius:10px;border:3px solid #e9edf4}.bottom-hscroll-inner{height:1px;width:1px}.bottom-hscroll-label{position:fixed;right:12px;bottom:20px;background:#101828;color:#fff;padding:4px 8px;border-radius:7px;font-size:10px;font-weight:800;z-index:101;display:none;pointer-events:none}.bottom-hscroll.is-visible{display:block}@media(max-width:850px){.bottom-hscroll{left:0}.bottom-hscroll-label{display:none}}
 @media(max-width:850px){body{overflow-x:auto}}
 </style>
 </head>
@@ -37,7 +39,8 @@ body::-webkit-scrollbar{height:14px}body::-webkit-scrollbar-track{background:#e9
 </div>
 
 <div id="app" class="app hidden">
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
+    <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Recolher menu" title="Recolher menu" onclick="toggleSidebar()"><span></span><span></span><span></span></button>
     <div class="sidebar-brand"><div class="brand-title"><span class="company">APS SOLUÇÕES</span><span class="sub">RANKING DE VENDAS</span></div></div>
     <div class="nav">
       <button id="navDashboard" class="active" onclick="showPage('dashboard',this)">🏆 <span>Ranking</span></button>
@@ -50,6 +53,8 @@ body::-webkit-scrollbar{height:14px}body::-webkit-scrollbar-track{background:#e9
       <button id="accountNav" class="hidden" onclick="showPage('account',this)">⚙️ <span>Minha conta</span></button>
     </div>
   </aside>
+  <div id="bottomHScroll" class="bottom-hscroll" aria-label="Barra horizontal para arrastar"><div id="bottomHScrollInner" class="bottom-hscroll-inner"></div></div>
+  <div id="bottomHScrollLabel" class="bottom-hscroll-label">Arraste para os lados ↔</div>
   <main class="main">
     <div class="desktop-scroll-note" style="display:none">Arraste a barra inferior para ver o restante da tela.</div>
     <div class="top">
@@ -199,6 +204,20 @@ async function api(url,opts={}){opts.headers={...(opts.headers||{}),Authorizatio
 async function login(){ $('loginError').textContent='';try{const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('email').value,password:$('password').value})});const d=await r.json();if(!r.ok||!d.token)throw new Error(d.error||'Falha no login');token=d.token;localStorage.setItem('aps_token',token);start()}catch(e){$('loginError').textContent=e.message}}
 async function start(){try{me=await api('/api/me');$('login').classList.add('hidden');$('app').classList.remove('hidden');const admin=me.role==='admin', rankingAdmin=me.role==='ranking_admin', privileged=admin||rankingAdmin;$('prizesNav').classList.remove('hidden');$('adminPrizeShortcut').classList.toggle('hidden',!privileged);$('supervisorNav').classList.toggle('hidden',!admin);$('teamNav').classList.toggle('hidden',!admin);$('leadsNav').classList.toggle('hidden',!admin);$('prizeConfigNav').classList.toggle('hidden',!admin);$('accountNav').classList.toggle('hidden',!admin);$('analyticsArea').classList.toggle('hidden',!admin);$('newSaleNav').classList.toggle('hidden',rankingAdmin);$('adminCards').classList.toggle('hidden',!privileged);$('consultantCards').classList.toggle('hidden',privileged);$('welcome').textContent=admin?'Administrador • visão geral da equipe':rankingAdmin?'Administrador • ranking e premiações':'Olá, '+me.name+' • seu desempenho e ranking';$('month').value=monthNow();$('filterMonth').value=monthNow();fillStates('saleState');fillStates('leadState');await loadLookups();if(admin)await loadTeam();await refreshAll();clearInterval(timer);timer=setInterval(refreshAll,10000)}catch(e){logout()}}
 function logout(){localStorage.removeItem('aps_token');token=null;clearInterval(timer);$('app').classList.add('hidden');$('login').classList.remove('hidden')}
+function toggleSidebar(){
+  const sb=$('sidebar');
+  const collapsed=sb.classList.toggle('collapsed');
+  localStorage.setItem('apsSidebarCollapsed', collapsed?'1':'0');
+  const b=$('sidebarToggle');
+  if(b){b.setAttribute('aria-label',collapsed?'Expandir menu':'Recolher menu');b.title=collapsed?'Expandir menu':'Recolher menu';}
+  if(typeof syncBottomHScroll==='function') syncBottomHScroll();
+}
+function restoreSidebar(){
+  const sb=$('sidebar');
+  if(!sb) return;
+  if(window.innerWidth>850 && localStorage.getItem('apsSidebarCollapsed')==='1') sb.classList.add('collapsed');
+}
+window.addEventListener('resize',()=>{ if(window.innerWidth<=850) $('sidebar')?.classList.remove('collapsed'); });
 function showPage(page,btn){['dashboard','team','leads','prizes','supervisor','prizeConfig','account'].forEach(x=>$(x).classList.toggle('hidden',x!==page));document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');$('pageTitle').textContent={dashboard:'Ranking de vendas',team:'Equipe e configurações',leads:'Gestão de leads',prizes:'Premiações',supervisor:'Supervisor',prizeConfig:'Configurar premiações',account:'Minha conta'}[page]||'Ranking de vendas';if(page==='team')loadTeam();if(page==='leads')loadLeads();if(page==='prizes')loadPrizes();if(page==='supervisor'&&me.role==='admin')loadSupervisor();if(page==='prizeConfig'&&me.role==='admin')loadPrizeConfig();if(page==='account')loadAccount()}
 async function loadLookups(){sourcesCache=await api('/api/lead-sources');const opts=sourcesCache.filter(s=>s.active).map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('');$('saleSource').innerHTML='<option value="">Selecione</option>'+opts;$('leadSource').innerHTML='<option value="">Selecione</option>'+opts;$('filterSource').innerHTML='<option value="">Todas</option>'+sourcesCache.filter(s=>s.active).map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}
 async function refreshAll(){try{const m=$('month').value||monthNow();const [rank,sales]=await Promise.all([api('/api/ranking?month='+encodeURIComponent(m)),api('/api/sales?month='+encodeURIComponent(m))]);renderRanking(rank);renderRecent(sales);if(me?.role==='admin'){await loadAnalytics();$('consultantSalesPanel').classList.add('hidden');$('rankingAdminsPanel').classList.remove('hidden');await loadRankingAdmins();}else if(me?.role==='ranking_admin'){$('consultantSalesPanel').classList.add('hidden');$('rankingAdminsPanel').classList.remove('hidden');await loadRankingAdmins();}else{$('rankingAdminsPanel').classList.add('hidden');renderConsultantSummary(rank);$('consultantSalesPanel').classList.remove('hidden');renderMySales(sales)};await loadPrizes()}catch(e){if(['Sessão inválida','Não autenticado'].includes(e.message))logout()}}
@@ -294,13 +313,47 @@ function toast(t){$('toast').textContent=t;$('toast').style.display='block';clea
 if(token)start();
 
 function updateHorizontalScrollHint(){
-  const note=document.querySelector('.desktop-scroll-note');
-  if(!note) return;
-  const overflow=document.documentElement.scrollWidth>window.innerWidth+2;
-  note.style.display=overflow?'block':'none';
-  note.style.position='fixed'; note.style.left='50%'; note.style.bottom='2px'; note.style.transform='translateX(-50%)'; note.style.zIndex='60'; note.style.background='#101828'; note.style.color='#fff'; note.style.padding='5px 10px'; note.style.borderRadius='8px'; note.style.fontSize='11px'; note.style.pointerEvents='none';
+  const bar=document.getElementById('bottomHScroll');
+  const inner=document.getElementById('bottomHScrollInner');
+  const label=document.getElementById('bottomHScrollLabel');
+  if(!bar||!inner)return;
+  const doc=document.documentElement;
+  const maxScroll=Math.max(0,doc.scrollWidth-window.innerWidth);
+  const visible=window.innerWidth;
+  const needs=maxScroll>2;
+  bar.classList.toggle('is-visible',needs);
+  if(needs){
+    inner.style.width=Math.max(doc.scrollWidth,visible+1)+'px';
+    if(label) label.style.display='block';
+    const maxBar=Math.max(0,bar.scrollWidth-bar.clientWidth);
+    if(Math.abs(bar.scrollLeft-doc.scrollLeft)>1 && !window.__syncingBar) bar.scrollLeft=Math.min(doc.scrollLeft,maxBar);
+  }else{
+    if(label) label.style.display='none';
+  }
 }
-window.addEventListener('resize',updateHorizontalScrollHint);
-setTimeout(updateHorizontalScrollHint,500);
+(function setupBottomHorizontalScroll(){
+  const bar=document.getElementById('bottomHScroll');
+  if(!bar)return;
+  let syncing=false;
+  bar.addEventListener('scroll',()=>{
+    if(syncing)return;
+    syncing=true;
+    document.documentElement.scrollLeft=bar.scrollLeft;
+    document.body.scrollLeft=bar.scrollLeft;
+    syncing=false;
+  },{passive:true});
+  window.addEventListener('scroll',()=>{
+    if(syncing)return;
+    const max=Math.max(0,bar.scrollWidth-bar.clientWidth);
+    const x=Math.min(document.documentElement.scrollLeft,max);
+    if(Math.abs(bar.scrollLeft-x)>1){syncing=true;bar.scrollLeft=x;syncing=false;}
+  },{passive:true});
+  window.addEventListener('resize',updateHorizontalScrollHint);
+  window.addEventListener('load',updateHorizontalScrollHint);
+  setTimeout(updateHorizontalScrollHint,100);
+  setTimeout(updateHorizontalScrollHint,500);
+  setTimeout(updateHorizontalScrollHint,1500);
+})();
 </script>
+<script>restoreSidebar();</script>
 </body></html>
