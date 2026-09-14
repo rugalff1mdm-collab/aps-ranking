@@ -39,6 +39,21 @@ body::-webkit-scrollbar{height:14px}body::-webkit-scrollbar-track{background:#e9
   .sidebar.collapsed + .bottom-hscroll{left:76px;}
 }
 @media(max-width:850px){.sidebar-toggle{position:relative;top:auto;right:auto;margin:0 0 0 auto!important;flex:0 0 auto}.sidebar-brand{padding-top:0!important;}}
+
+/* V8.2.21: layout final — sidebar never covers content; horizontal scroll belongs to main */
+html,body{width:100%;max-width:100%;overflow-x:hidden!important}
+.main{margin-left:258px!important;width:calc(100vw - 258px)!important;min-width:0!important;max-width:none!important;overflow-x:auto!important;overflow-y:visible!important;padding:30px!important}
+.main>*{min-width:0!important;max-width:none!important}
+.sidebar.collapsed ~ .main{margin-left:76px!important;width:calc(100vw - 76px)!important}
+.bottom-hscroll{left:258px!important;right:0!important;bottom:0!important;height:18px!important;display:none!important;overflow-x:auto!important;overflow-y:hidden!important}
+.sidebar.collapsed + .bottom-hscroll{left:76px!important}
+.bottom-hscroll.is-visible{display:block!important}
+@media(max-width:850px){
+  html,body{overflow-x:hidden!important}
+  .main{margin-left:0!important;width:100%!important;min-width:0!important;overflow-x:auto!important;padding:18px!important}
+  .bottom-hscroll{left:0!important}
+}
+
 </style>
 </head>
 <body>
@@ -330,40 +345,46 @@ function updateHorizontalScrollHint(){
   const bar=document.getElementById('bottomHScroll');
   const inner=document.getElementById('bottomHScrollInner');
   const label=document.getElementById('bottomHScrollLabel');
-  if(!bar||!inner)return;
-  const doc=document.documentElement;
-  const maxScroll=Math.max(0,doc.scrollWidth-window.innerWidth);
-  const visible=window.innerWidth;
-  const needs=window.innerWidth>850 && maxScroll>2;
+  const main=document.querySelector('.main');
+  if(!bar||!inner||!main)return;
+  const needs=window.innerWidth>850 && main.scrollWidth-main.clientWidth>2;
   bar.classList.toggle('is-visible',needs);
   if(needs){
-    inner.style.width=Math.max(doc.scrollWidth,visible+1)+'px';
-    if(label) label.style.display='block';
-    const maxBar=Math.max(0,bar.scrollWidth-bar.clientWidth);
-    if(Math.abs(bar.scrollLeft-doc.scrollLeft)>1 && !window.__syncingBar) bar.scrollLeft=Math.min(doc.scrollLeft,maxBar);
+    inner.style.width=Math.max(main.scrollWidth,main.clientWidth+1)+'px';
+    const max=Math.max(0,bar.scrollWidth-bar.clientWidth);
+    const x=Math.min(main.scrollLeft,max);
+    if(Math.abs(bar.scrollLeft-x)>1){bar.scrollLeft=x;}
+    if(label)label.style.display='block';
   }else{
-    if(label) label.style.display='none';
+    bar.scrollLeft=0;
+    inner.style.width='1px';
+    if(label)label.style.display='none';
   }
 }
 (function setupBottomHorizontalScroll(){
   const bar=document.getElementById('bottomHScroll');
-  if(!bar)return;
+  const main=document.querySelector('.main');
+  if(!bar||!main)return;
   let syncing=false;
   bar.addEventListener('scroll',()=>{
     if(syncing)return;
     syncing=true;
-    document.documentElement.scrollLeft=bar.scrollLeft;
-    document.body.scrollLeft=bar.scrollLeft;
+    main.scrollLeft=bar.scrollLeft;
     syncing=false;
   },{passive:true});
-  window.addEventListener('scroll',()=>{
+  main.addEventListener('scroll',()=>{
     if(syncing)return;
-    const max=Math.max(0,bar.scrollWidth-bar.clientWidth);
-    const x=Math.min(document.documentElement.scrollLeft,max);
-    if(Math.abs(bar.scrollLeft-x)>1){syncing=true;bar.scrollLeft=x;syncing=false;}
+    syncing=true;
+    bar.scrollLeft=Math.min(main.scrollLeft,Math.max(0,bar.scrollWidth-bar.clientWidth));
+    syncing=false;
   },{passive:true});
   window.addEventListener('resize',updateHorizontalScrollHint);
-  window.addEventListener('load',updateHorizontalScrollHint);
+  window.addEventListener('load',()=>{
+    document.documentElement.scrollLeft=0;
+    document.body.scrollLeft=0;
+    main.scrollLeft=0;
+    updateHorizontalScrollHint();
+  });
   setTimeout(updateHorizontalScrollHint,100);
   setTimeout(updateHorizontalScrollHint,500);
   setTimeout(updateHorizontalScrollHint,1500);
