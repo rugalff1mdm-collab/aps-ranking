@@ -40,20 +40,27 @@ body::-webkit-scrollbar{height:14px}body::-webkit-scrollbar-track{background:#e9
 }
 @media(max-width:850px){.sidebar-toggle{position:relative;top:auto;right:auto;margin:0 0 0 auto!important;flex:0 0 auto}.sidebar-brand{padding-top:0!important;}}
 
-/* V8.2.21: layout final — sidebar never covers content; horizontal scroll belongs to main */
-html,body{width:100%;max-width:100%;overflow-x:hidden!important}
-.main{margin-left:258px!important;width:calc(100vw - 258px)!important;min-width:0!important;max-width:none!important;overflow-x:auto!important;overflow-y:visible!important;padding:30px!important}
-.main>*{min-width:0!important;max-width:none!important}
-.sidebar.collapsed ~ .main{margin-left:76px!important;width:calc(100vw - 76px)!important}
-.bottom-hscroll{left:258px!important;right:0!important;bottom:0!important;height:18px!important;display:none!important;overflow-x:auto!important;overflow-y:hidden!important}
+/* V8.2.22: definitive desktop layout */
+html,body{width:100%;max-width:100%;margin:0;overflow:hidden!important}
+.app{min-height:100vh}
+.sidebar{position:fixed!important;top:0!important;left:0!important;bottom:0!important;right:auto!important;width:258px!important;overflow-y:auto!important;overflow-x:hidden!important;z-index:50!important}
+.sidebar.collapsed{width:76px!important}
+.main{position:fixed!important;top:0!important;right:0!important;bottom:18px!important;left:258px!important;margin:0!important;width:auto!important;min-width:0!important;max-width:none!important;padding:30px!important;overflow-x:auto!important;overflow-y:auto!important;z-index:1!important}
+.sidebar.collapsed ~ .main{left:76px!important;margin:0!important;width:auto!important}
+.main>.desktop-scroll-note{display:none!important}
+.main>.top,.main>section{min-width:2200px!important;max-width:none!important}
+.main .panel,.main .grid,.main .cards{max-width:none!important}
+.bottom-hscroll{position:fixed!important;left:258px!important;right:0!important;bottom:0!important;height:18px!important;display:block!important;z-index:1000!important;overflow-x:scroll!important;overflow-y:hidden!important;background:#dfe4ec!important;border-top:1px solid #cbd3df!important}
 .sidebar.collapsed + .bottom-hscroll{left:76px!important}
-.bottom-hscroll.is-visible{display:block!important}
+.bottom-hscroll-inner{height:1px!important;width:2200px!important}
+.bottom-hscroll-label{display:none!important}
 @media(max-width:850px){
-  html,body{overflow-x:hidden!important}
-  .main{margin-left:0!important;width:100%!important;min-width:0!important;overflow-x:auto!important;padding:18px!important}
-  .bottom-hscroll{left:0!important}
+ html,body{overflow:auto!important}
+ .sidebar{position:static!important;width:auto!important;min-height:0!important}
+ .main{position:static!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;width:100%!important;min-width:0!important;padding:18px!important;overflow-x:auto!important;overflow-y:visible!important}
+ .main>.top,.main>section{min-width:0!important;max-width:none!important}
+ .bottom-hscroll{display:none!important}
 }
-
 </style>
 </head>
 <body>
@@ -344,22 +351,17 @@ if(token)start();
 function updateHorizontalScrollHint(){
   const bar=document.getElementById('bottomHScroll');
   const inner=document.getElementById('bottomHScrollInner');
-  const label=document.getElementById('bottomHScrollLabel');
   const main=document.querySelector('.main');
   if(!bar||!inner||!main)return;
-  const needs=window.innerWidth>850 && main.scrollWidth-main.clientWidth>2;
-  bar.classList.toggle('is-visible',needs);
-  if(needs){
-    inner.style.width=Math.max(main.scrollWidth,main.clientWidth+1)+'px';
-    const max=Math.max(0,bar.scrollWidth-bar.clientWidth);
-    const x=Math.min(main.scrollLeft,max);
-    if(Math.abs(bar.scrollLeft-x)>1){bar.scrollLeft=x;}
-    if(label)label.style.display='block';
-  }else{
-    bar.scrollLeft=0;
-    inner.style.width='1px';
-    if(label)label.style.display='none';
-  }
+  if(window.innerWidth<=850){bar.style.display='none';return}
+  bar.style.display='block';
+  const contentWidth=Math.max(main.scrollWidth,2200);
+  inner.style.width=contentWidth+'px';
+  const maxBar=Math.max(0,bar.scrollWidth-bar.clientWidth);
+  const maxMain=Math.max(0,main.scrollWidth-main.clientWidth);
+  const ratio=maxBar/(maxMain||1);
+  const target=maxMain?main.scrollLeft*ratio:0;
+  if(Math.abs(bar.scrollLeft-target)>1)bar.scrollLeft=target;
 }
 (function setupBottomHorizontalScroll(){
   const bar=document.getElementById('bottomHScroll');
@@ -369,26 +371,26 @@ function updateHorizontalScrollHint(){
   bar.addEventListener('scroll',()=>{
     if(syncing)return;
     syncing=true;
-    main.scrollLeft=bar.scrollLeft;
+    const maxBar=Math.max(0,bar.scrollWidth-bar.clientWidth);
+    const maxMain=Math.max(0,main.scrollWidth-main.clientWidth);
+    main.scrollLeft=maxBar?bar.scrollLeft/maxBar*maxMain:0;
     syncing=false;
   },{passive:true});
   main.addEventListener('scroll',()=>{
     if(syncing)return;
     syncing=true;
-    bar.scrollLeft=Math.min(main.scrollLeft,Math.max(0,bar.scrollWidth-bar.clientWidth));
+    const maxBar=Math.max(0,bar.scrollWidth-bar.clientWidth);
+    const maxMain=Math.max(0,main.scrollWidth-main.clientWidth);
+    bar.scrollLeft=maxMain?main.scrollLeft/maxMain*maxBar:0;
     syncing=false;
   },{passive:true});
-  window.addEventListener('resize',updateHorizontalScrollHint);
+  window.addEventListener('resize',()=>setTimeout(updateHorizontalScrollHint,0));
   window.addEventListener('load',()=>{
-    document.documentElement.scrollLeft=0;
-    document.body.scrollLeft=0;
-    main.scrollLeft=0;
-    updateHorizontalScrollHint();
+    document.documentElement.scrollLeft=0;document.body.scrollLeft=0;main.scrollLeft=0;bar.scrollLeft=0;updateHorizontalScrollHint();
   });
-  setTimeout(updateHorizontalScrollHint,100);
+  setTimeout(()=>{main.scrollLeft=0;bar.scrollLeft=0;updateHorizontalScrollHint()},100);
   setTimeout(updateHorizontalScrollHint,500);
   setTimeout(updateHorizontalScrollHint,1500);
 })();
-</script>
 <script>restoreSidebar();</script>
 </body></html>
