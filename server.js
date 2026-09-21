@@ -87,6 +87,8 @@ async function init(){
     state TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS team TEXT NOT NULL DEFAULT 'A'`);
+  await pool.query(`UPDATE users SET team='A' WHERE team IS NULL OR team=''`);
   await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS client_age INTEGER`);
   await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS birth_date TEXT`);
   await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS gross_amount REAL`);
@@ -232,7 +234,7 @@ app.post('/api/login',async(req,res)=>{
 });
 
 app.get('/api/me',auth,async(req,res)=>{
-  const u=await dbGet('SELECT id,name,email,role,goal,photo_data FROM users WHERE id=?',[req.user.id]);
+  const u=await dbGet('SELECT id,name,email,role,goal,photo_data,team FROM users WHERE id=?',[req.user.id]);
   if(!u) return res.status(404).json({error:'Usuário não encontrado'});
   res.json(u);
 });
@@ -251,12 +253,34 @@ app.patch('/api/me',auth,async(req,res)=>{
 });
 
 app.get('/api/ranking',auth,async(req,res)=>{
-  const month=validMonth(req.query.month); const {where:rawWhere,params}=dateFilterParts({month},'s');
+  const month=validMonth(req.query.month);
+  const team=String(req.query.team||'').trim().toUpperCase();
+  if(team && !['A','B'].includes(team)) return res.status(400).json({error:'Equipe inválida'});
+  if(team && req.user.role!=='admin') return res.status(403).json({error:'Acesso restrito'});
+  const {where:rawWhere,params}=dateFilterParts({month},'s');
   const where=rawWhere.replace(/s\.date/g,'s.sale_date');
-  const rows=await dbAll(`SELECT u.id,u.name,u.goal,u.photo_data,COALESCE(SUM(s.amount),0) revenue,COUNT(s.id) sales_count
+  const teamWhere=team?` AND u.team=?`:''; const finalParams=team?[...params,team]:params;
+  const rows=await dbAll(`SELECT u.id,u.name,u.goal,u.photo_data,u.team,COALESCE(SUM(s.amount),0) revenue,COUNT(s.id) sales_count
     FROM users u LEFT JOIN sales s ON s.consultant_id=u.id ${where?where.replace(' AND s.',' AND s.'):''}
-    WHERE u.role='consultant' AND u.active=1 GROUP BY u.id ORDER BY revenue DESC,sales_count DESC,u.name ASC`,params);
+    WHERE u.role='consultant' AND u.active=1${teamWhere} GROUP BY u.id ORDER BY revenue DESC,sales_count DESC,u.name ASC`,finalParams);
   res.json(rows.map(r=>({...r,revenue:Number(r.revenue||0),sales_count:Number(r.sales_count||0),avg_ticket:r.sales_count?Number(r.revenue)/Number(r.sales_count):0,goal_pct:r.goal?Number(r.revenue)/Number(r.goal)*100:0})));
+});
+
+app.get('/api/team-rankings',auth,async(req,res)=>{
+  if(req.user.role!=='admin') return res.status(403).json({error:'Acesso restrito'});
+  const start=validDate(req.query.from)?String(req.query.from):(process.env.TEAM_RANK_START_DATE||'2026-09-21');
+  const teams={};
+  for(const team of ['A','B']){
+    const rows=await dbAll(`SELECT u.id,u.name,u.goal,u.photo_data,u.team,
+      COALESCE(SUM(s.amount),0) revenue,COUNT(s.id) sales_count
+      FROM users u
+      LEFT JOIN sales s ON s.consultant_id=u.id AND s.sale_date>=?
+      WHERE u.role='consultant' AND u.active=1 AND u.team=?
+      GROUP BY u.id ORDER BY revenue DESC,sales_count DESC,u.name ASC`,[start,team]);
+    const decorated=rows.map(r=>({...r,revenue:Number(r.revenue||0),sales_count:Number(r.sales_count||0),avg_ticket:r.sales_count?Number(r.revenue)/Number(r.sales_count):0,goal_pct:r.goal?Number(r.revenue)/Number(r.goal)*100:0}));
+    teams[team]={team,rows:decorated,total_revenue:decorated.reduce((a,r)=>a+r.revenue,0),total_sales:decorated.reduce((a,r)=>a+r.sales_count,0)};
+  }
+  res.json({start,teams});
 });
 
 app.get('/api/sales',auth,async(req,res)=>{
@@ -317,25 +341,26 @@ app.get('/api/ranking-admins',auth,async(req,res)=>{
 });
 
 app.get('/api/users',auth,adminOnly,async(req,res)=>{
-  const rows=await dbAll(`SELECT id,name,email,role,active,goal,photo_data,created_at FROM users ORDER BY role DESC,name ASC`);res.json(rows);
+  const rows=await dbAll(`SELECT id,name,email,role,active,goal,photo_data,team,created_at FROM users ORDER BY role DESC,team ASC,name ASC`);res.json(rows);
 });
 app.post('/api/users',auth,adminOnly,async(req,res)=>{
   try{
-    const {name,email,password,goal,photo_data}=req.body||{}; const requestedRole=String(req.body?.role||'consultant');
+    const {name,email,password,goal,photo_data}=req.body||{}; const requestedRole=String(req.body?.role||'consultant'); const team=String(req.body?.team||'A').trim().toUpperCase();
     if(!name||!email||!password) return res.status(400).json({error:'Nome, e-mail e senha são obrigatórios'});
     if(String(password).length<6) return res.status(400).json({error:'A senha deve ter pelo menos 6 caracteres'});
     const goalValue=Number(goal||0);if(!Number.isFinite(goalValue)||goalValue<0) return res.status(400).json({error:'Meta inválida'});
     if(!['consultant','ranking_admin'].includes(requestedRole)) return res.status(400).json({error:'Tipo de acesso inválido'});
-    const hash=await bcrypt.hash(String(password),10);const result=await dbRun('INSERT INTO users (name,email,password_hash,role,goal,photo_data) VALUES (?,?,?,?,?,?)',[String(name).trim(),String(email).trim().toLowerCase(),hash,requestedRole,requestedRole==='consultant'?goalValue:0,photo_data||null]);res.json({id:result.lastID});
+    if(!['A','B'].includes(team)) return res.status(400).json({error:'Equipe inválida'});
+    const hash=await bcrypt.hash(String(password),10);const result=await dbRun('INSERT INTO users (name,email,password_hash,role,goal,photo_data,team) VALUES (?,?,?,?,?,?,?)',[String(name).trim(),String(email).trim().toLowerCase(),hash,requestedRole,requestedRole==='consultant'?goalValue:0,photo_data||null,team]);res.json({id:result.lastID});
   }catch(e){res.status(400).json({error:'E-mail já cadastrado ou dados inválidos'})}
 });
 app.patch('/api/users/:id',auth,adminOnly,async(req,res)=>{
   try{
     const u=await dbGet('SELECT * FROM users WHERE id=?',[req.params.id]);if(!u) return res.status(404).json({error:'Usuário não encontrado'});
-    const name=String(req.body?.name??u.name).trim(),goal=Number(req.body?.goal??u.goal),active=req.body?.active===undefined?u.active:(req.body.active?1:0),photo=req.body?.photo_data===undefined?u.photo_data:req.body.photo_data,email=req.body?.email===undefined?u.email:String(req.body.email).trim().toLowerCase();
-    if(!name||!email||!Number.isFinite(goal)||goal<0) return res.status(400).json({error:'Nome, e-mail e meta são obrigatórios e válidos'});
-    if(req.body?.password){if(String(req.body.password).length<6)return res.status(400).json({error:'A senha deve ter pelo menos 6 caracteres'});const hash=await bcrypt.hash(String(req.body.password),10);await dbRun('UPDATE users SET name=?,email=?,goal=?,active=?,photo_data=?,password_hash=? WHERE id=?',[name,email,goal,active,photo,hash,u.id]);}
-    else await dbRun('UPDATE users SET name=?,email=?,goal=?,active=?,photo_data=? WHERE id=?',[name,email,goal,active,photo,u.id]);
+    const name=String(req.body?.name??u.name).trim(),goal=Number(req.body?.goal??u.goal),active=req.body?.active===undefined?u.active:(req.body.active?1:0),photo=req.body?.photo_data===undefined?u.photo_data:req.body.photo_data,email=req.body?.email===undefined?u.email:String(req.body.email).trim().toLowerCase(),team=String(req.body?.team??u.team??'A').trim().toUpperCase();
+    if(!name||!email||!Number.isFinite(goal)||goal<0||!['A','B'].includes(team)) return res.status(400).json({error:'Nome, e-mail, meta e equipe são obrigatórios e válidos'});
+    if(req.body?.password){if(String(req.body.password).length<6)return res.status(400).json({error:'A nova senha deve ter pelo menos 6 caracteres'});const hash=await bcrypt.hash(String(req.body.password),10);await dbRun('UPDATE users SET name=?,email=?,goal=?,active=?,photo_data=?,password_hash=?,team=? WHERE id=?',[name,email,goal,active,photo,hash,team,u.id]);}
+    else await dbRun('UPDATE users SET name=?,email=?,goal=?,active=?,photo_data=?,team=? WHERE id=?',[name,email,goal,active,photo,team,u.id]);
     res.json({ok:true});
   }catch(e){if(String(e.message||'').includes('UNIQUE')) return res.status(400).json({error:'Este e-mail já está em uso'});console.error(e);res.status(500).json({error:'Não foi possível atualizar o consultor'});}
 });
@@ -433,9 +458,9 @@ function addDaysISO(date,days){const d=new Date(date.getTime());d.setUTCDate(d.g
 function weekStart(date){const d=dateOnly(date);const day=d.getUTCDay();const diff=day===0?-6:1-day;return addDaysISO(d,diff)}
 async function prizeData(month, consultantId=null){
   const rules=await dbAll('SELECT * FROM prize_rules WHERE active=1 ORDER BY category,min_amount DESC,id');
-  // Carrega todas as vendas do mês para que o ranking diário consiga comparar a equipe inteira,
-  // inclusive quando a tela é aberta pelo login de um único consultor.
-  const sales=await dbAll(`SELECT s.*,u.name consultant_name FROM sales s JOIN users u ON u.id=s.consultant_id WHERE substr(s.sale_date,1,7)=? ORDER BY s.sale_date ASC,s.id ASC`,[month]);
+  const prizeStartDate=String(process.env.PRIZE_START_DATE||'2026-09-21');
+  // Premiações começam somente a partir da data configurada. Vendas anteriores continuam no ranking normal.
+  const sales=await dbAll(`SELECT s.*,u.name consultant_name FROM sales s JOIN users u ON u.id=s.consultant_id WHERE substr(s.sale_date,1,7)=? AND s.sale_date>=? ORDER BY s.sale_date ASC,s.id ASC`,[month,prizeStartDate]);
   const consultants=consultantId?await dbAll("SELECT id,name,goal,photo_data FROM users WHERE id=? AND role='consultant'",[consultantId]):await dbAll("SELECT id,name,goal,photo_data FROM users WHERE role='consultant' AND active=1 ORDER BY name");
   const out=consultants.map(c=>({id:c.id,name:c.name,goal:Number(c.goal||0),photo_data:c.photo_data||null,revenue:0,gross_revenue:0,sales_count:0,awards:[],lost:[],total_prize:0}));
   const byId=new Map(out.map(x=>[x.id,x])); const byConsultant=new Map();
@@ -519,7 +544,7 @@ app.patch('/api/prize-rules/:id',auth,adminOnly,async(req,res)=>{
 });
 app.get('/api/supervisor-prizes',auth,rankingAdminOrAdmin,async(req,res)=>{
   const month=validMonth(req.query.month);const cfg=await dbAll('SELECT * FROM supervisor_prize_settings ORDER BY id');const by=Object.fromEntries(cfg.map(x=>[x.name,{value:Number(x.value),active:!!x.active}]));
-  const rows=await dbAll(`SELECT sale_date,COALESCE(SUM(gross_amount),0) revenue,COUNT(*) sales FROM sales WHERE substr(sale_date,1,7)=? GROUP BY sale_date ORDER BY sale_date`,[month]);
+  const rows=await dbAll(`SELECT sale_date,COALESCE(SUM(gross_amount),0) revenue,COUNT(*) sales FROM sales WHERE substr(sale_date,1,7)=? AND sale_date>=? GROUP BY sale_date ORDER BY sale_date`,[month,process.env.PRIZE_START_DATE||'2026-09-21']);
   const dailyGoal=by.daily_goal?.value??5715, weeklyGoal=by.weekly_goal?.value??28600, dailyPrize=by.daily_prize?.value??50, weeklyPrize=by.weekly_prize?.value??100;
   const daily=rows.map(r=>({...r,revenue:Number(r.revenue),sales:Number(r.sales),hit:Number(r.revenue)>=dailyGoal,prize:Number(r.revenue)>=dailyGoal?dailyPrize:0}));
   const weeks={};rows.forEach(r=>(weeks[weekStart(r.sale_date)]??=[]).push(r));const weekly=Object.entries(weeks).map(([start,rs])=>{const revenue=rs.reduce((a,r)=>a+Number(r.revenue),0);return {week_start:start,revenue,hit:revenue>=weeklyGoal,prize:revenue>=weeklyGoal?weeklyPrize:0}});
