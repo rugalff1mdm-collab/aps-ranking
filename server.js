@@ -271,12 +271,15 @@ app.get('/api/team-rankings',auth,async(req,res)=>{
   const start=validDate(req.query.from)?String(req.query.from):(process.env.TEAM_RANK_START_DATE||'2026-09-21');
   const teams={};
   for(const team of ['A','B']){
+    // Equipe A mantém o histórico normal; Equipe B começa no ranking separado a partir da data configurada.
+    const dateFilter = team==='B' ? ' AND s.sale_date>=?' : '';
+    const params = team==='B' ? [start,team] : [team];
     const rows=await dbAll(`SELECT u.id,u.name,u.goal,u.photo_data,u.team,
       COALESCE(SUM(s.amount),0) revenue,COUNT(s.id) sales_count
       FROM users u
-      LEFT JOIN sales s ON s.consultant_id=u.id AND s.sale_date>=?
+      LEFT JOIN sales s ON s.consultant_id=u.id${dateFilter}
       WHERE u.role='consultant' AND u.active=1 AND u.team=?
-      GROUP BY u.id ORDER BY revenue DESC,sales_count DESC,u.name ASC`,[start,team]);
+      GROUP BY u.id ORDER BY revenue DESC,sales_count DESC,u.name ASC`,params);
     const decorated=rows.map(r=>({...r,revenue:Number(r.revenue||0),sales_count:Number(r.sales_count||0),avg_ticket:r.sales_count?Number(r.revenue)/Number(r.sales_count):0,goal_pct:r.goal?Number(r.revenue)/Number(r.goal)*100:0}));
     teams[team]={team,rows:decorated,total_revenue:decorated.reduce((a,r)=>a+r.revenue,0),total_sales:decorated.reduce((a,r)=>a+r.sales_count,0)};
   }
@@ -459,8 +462,12 @@ function weekStart(date){const d=dateOnly(date);const day=d.getUTCDay();const di
 async function prizeData(month, consultantId=null){
   const rules=await dbAll('SELECT * FROM prize_rules WHERE active=1 ORDER BY category,min_amount DESC,id');
   const prizeStartDate=String(process.env.PRIZE_START_DATE||'2026-09-21');
-  // Premiações começam somente a partir da data configurada. Vendas anteriores continuam no ranking normal.
-  const sales=await dbAll(`SELECT s.*,u.name consultant_name FROM sales s JOIN users u ON u.id=s.consultant_id WHERE substr(s.sale_date,1,7)=? AND s.sale_date>=? ORDER BY s.sale_date ASC,s.id ASC`,[month,prizeStartDate]);
+  const teamBSalesStart=String(process.env.TEAM_B_PRIZE_START_DATE||'2026-09-21');
+  // Equipe A mantém as premiações normais, inclusive sobre vendas anteriores.
+  // Equipe B só recebe premiação sobre vendas feitas a partir da data configurada.
+  const sales=await dbAll(`SELECT s.*,u.name consultant_name,u.team FROM sales s JOIN users u ON u.id=s.consultant_id
+    WHERE substr(s.sale_date,1,7)=? AND (u.team='A' OR (u.team='B' AND s.sale_date>=?))
+    ORDER BY s.sale_date ASC,s.id ASC`,[month,teamBSalesStart]);
   const consultants=consultantId?await dbAll("SELECT id,name,goal,photo_data FROM users WHERE id=? AND role='consultant'",[consultantId]):await dbAll("SELECT id,name,goal,photo_data FROM users WHERE role='consultant' AND active=1 ORDER BY name");
   const out=consultants.map(c=>({id:c.id,name:c.name,goal:Number(c.goal||0),photo_data:c.photo_data||null,revenue:0,gross_revenue:0,sales_count:0,awards:[],lost:[],total_prize:0}));
   const byId=new Map(out.map(x=>[x.id,x])); const byConsultant=new Map();
