@@ -234,6 +234,7 @@ html,body{width:100%;max-width:100%;margin:0;overflow:hidden!important}
 <script>
 let token=localStorage.getItem('aps_token'),me=null,timer=null,usersCache=[],sourcesCache=[],photoData=null,editPhotoData=null,lastRanking=[],cardRates={};
 const $=id=>document.getElementById(id);const money=v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(v)||0);const STATES=['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
+function avatar(photo,name){if(photo)return '<img class="avatar" src="'+photo+'" alt="">';const n=String(name||'?').trim();const initials=n.split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase()||'?';return '<div class="avatar">'+esc(initials)+'</div>'}
 function today(){return new Date().toISOString().slice(0,10)}function monthNow(){return new Date().toISOString().slice(0,7)}function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function pct(v){return `${Number(v||0).toFixed(Number(v||0)%1?1:0)}%`}
 function fillStates(id){$(id).innerHTML='<option value="">Selecione</option>'+STATES.map(s=>`<option value="${s}">${s}</option>`).join('')}
