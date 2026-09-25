@@ -352,7 +352,27 @@ function validateSaleForm(prefix){
   markMissing(prefix,ids);
   return missing;
 }
-async function saveEditSale(){try{const missing=validateSaleForm('es');if(missing.length){toast('Falta preencher: '+missing.join(', '));return;}const count=Number($('esPaymentCount').value||1),payload={client_name:$('esClient').value.trim(),birth_date:$('esBirthDate').value,state:$('esState').value,lead_source_id:Number($('esSource').value),consultant_id:Number($('esConsultant').value)};for(let i=1;i<=count;i++){const r=paymentRefs('es',i),suf=i===1?'':'_'+i,date=readPaymentDate('es',i);payload[`payment_amount${i===1?'_1':suf}`]=$(r.amount).value;payload[`payment_type${i===1?'_1':suf}`]=readPaymentForm('es',i);payload[`installments${i===1?'_1':suf}`]=$(r.inst).value?Number($(r.inst).value):null;payload[`card_platform${i===1?'_1':suf}`]=$(r.platform).value||null;payload[`payment_date${i===1?'_1':suf}`]=date}await api('/api/sales/'+$('esId').value,{method:'PATCH',body:JSON.stringify(payload)});closeModal('editSaleModal');toast('Venda corrigida!');refreshAll()}catch(e){toast(e.message)}}
+async function saveEditSale(){
+  try{
+    const missing=validateSaleForm('es');
+    if(missing.length){toast('Falta preencher: '+missing.join(', '));return;}
+    const count=Number($('esPaymentCount').value||1);
+    const payload={client_name:$('esClient').value.trim(),birth_date:$('esBirthDate').value,state:$('esState').value,lead_source_id:Number($('esSource').value),consultant_id:Number($('esConsultant').value)};
+    for(let i=1;i<=count;i++){
+      const r=paymentRefs('es',i),suf=i===1?'':'_'+i,date=readPaymentDate('es',i);
+      payload[`payment_amount${i===1?'_1':suf}`]=$(r.amount).value;
+      payload[`payment_type${i===1?'_1':suf}`]=readPaymentForm('es',i);
+      payload[`installments${i===1?'_1':suf}`]=$(r.inst).value?Number($(r.inst).value):null;
+      payload[`card_platform${i===1?'_1':suf}`]=$(r.platform).value||null;
+      payload[`payment_date${i===1?'_1':suf}`]=date;
+    }
+    const result=await api('/api/sales/'+$('esId').value,{method:'PATCH',body:JSON.stringify(payload)});
+    if(!result?.ok||!result?.sale?.id) throw new Error('O servidor não confirmou a atualização da venda.');
+    closeModal('editSaleModal');
+    toast('Venda corrigida e salva no banco!');
+    await refreshAll();
+  }catch(e){toast(e.message)}
+}
 async function saveSale(){try{const missing=validateSaleForm('sale');if(missing.length){toast('Falta preencher: '+missing.join(', '));return;}const count=Number($('salePaymentCount').value||1),payload={client_name:$('client').value.trim(),birth_date:$('clientBirthDate').value,state:$('saleState').value,lead_source_id:Number($('saleSource').value)};for(let i=1;i<=count;i++){const r=paymentRefs('sale',i),suf=i===1?'':'_'+i,date=readPaymentDate('sale',i);payload[`payment_amount${i===1?'_1':suf}`]=$(r.amount).value;payload[`payment_type${i===1?'_1':suf}`]=readPaymentForm('sale',i);payload[`installments${i===1?'_1':suf}`]=$(r.inst).value?Number($(r.inst).value):null;payload[`card_platform${i===1?'_1':suf}`]=$(r.platform).value||null;payload[`payment_date${i===1?'_1':suf}`]=date}if(me.role==='admin')payload.consultant_id=Number($('saleConsultant').value);await api('/api/sales',{method:'POST',body:JSON.stringify(payload)});closeModal('saleModal');toast('Venda registrada!');refreshAll()}catch(e){toast(e.message)}}
 let newUserRole='consultant';
 function openUser(role='consultant'){newUserRole=role;photoData=null;$('uPhoto').value='';$('uPreview').removeAttribute('src');['uName','uEmail','uPassword','uGoal'].forEach(x=>$(x).value='');$('uTeam').value='A';$('userModalTitle').textContent=role==='ranking_admin'?'Novo login ADM Ranking':'Novo consultor';$('uGoalWrap').classList.toggle('hidden',role==='ranking_admin');$('uTeamWrap').classList.toggle('hidden',role==='ranking_admin');$('userModal').classList.remove('hidden');$('uName').focus()}
