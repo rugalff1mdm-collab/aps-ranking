@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>APS SOLUÇÕES • Ranking de Vendas</title>
+<title>APS SOLUÇÕES • Ranking de Vendas • v8.2.44</title>
 <style>
 :root{--bg:#f5f7fb;--card:#fff;--text:#172033;--muted:#667085;--line:#e5e7eb;--accent:#2457d6;--accent2:#0f3fae;--dark:#101828;--ok:#12b76a;--warn:#f79009;--danger:#b42318;--soft:#eef4ff;--shadow:0 12px 35px rgba(16,24,40,.07)}
 *{box-sizing:border-box}html,body{margin:0;width:100%;min-height:100%;overflow-x:auto}body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}button,input,select{font:inherit}.hidden{display:none!important}.muted{color:var(--muted);font-size:13px}.eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;font-weight:900;color:#8b98ad}.brand-title{line-height:.92;letter-spacing:-.055em}.brand-title .company{display:block;font-size:28px;font-weight:950}.brand-title .sub{display:block;margin-top:5px;font-size:13px;letter-spacing:.16em;font-weight:800;color:#93a4bd}
@@ -238,7 +238,15 @@ function avatar(photo,name){if(photo)return '<img class="avatar" src="'+photo+'"
 function today(){return new Date().toISOString().slice(0,10)}function monthNow(){return new Date().toISOString().slice(0,7)}function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function pct(v){return `${Number(v||0).toFixed(Number(v||0)%1?1:0)}%`}
 function fillStates(id){$(id).innerHTML='<option value="">Selecione</option>'+STATES.map(s=>`<option value="${s}">${s}</option>`).join('')}
-async function api(url,opts={}){opts.headers={...(opts.headers||{}),Authorization:`Bearer ${token}`,'Content-Type':'application/json'};const r=await fetch(url,opts);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Erro');return d}
+async function api(url,opts={}){
+  opts={...opts,headers:{...(opts.headers||{}),Authorization:`Bearer ${token}`,'Content-Type':'application/json'},cache:opts.cache||'no-store'};
+  const method=String(opts.method||'GET').toUpperCase();
+  if(method==='GET'){const sep=url.includes('?')?'&':'?';url+=sep+'_ts='+Date.now()}
+  const r=await fetch(url,opts);
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(d.error||'Erro');
+  return d;
+}
 async function login(){ $('loginError').textContent='';try{const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('email').value,password:$('password').value})});const d=await r.json().catch(()=>({}));if(!r.ok||!d.token)throw new Error(d.error||('Falha no login (HTTP '+r.status+')'));token=d.token;localStorage.setItem('aps_token',token);await start()}catch(e){console.error('login',e);localStorage.removeItem('aps_token');token=null;$('loginError').textContent=e.message||'Falha no login'}}
 async function loadLookups(){
   sourcesCache=await api('/api/lead-sources');
@@ -274,15 +282,59 @@ async function loadCardRates(){cardRates=await api('/api/card-rates');['cardPlat
 function populatePlatformSelect(id){const el=$(id);if(!el)return;const current=el.value;el.innerHTML='<option value="">Selecione a plataforma</option>'+Object.keys(cardRates).map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');if(current&&cardRates[current])el.value=current}
 function getCardRate(platform,n){const num=Number(n);if(!num||num<1||num>12)return null;if(num===1)return 0;const rates=cardRates&&cardRates[platform];if(!rates)return null;if(Array.isArray(rates)){const row=rates.find(x=>Number(x.installments)===num);return row&&row.rate!=null?Number(row.rate):null}if(typeof rates==='object'){const value=rates[num]??rates[String(num)];return value==null?null:Number(value)}return null}
 function paymentRefs(prefix,part=1){const e=prefix==='sale'?'sale':'es';return{pay:`${e}Payment${part}`,amount:`${e}PaymentAmount${part}`,platform:`${e}Platform${part}`,inst:`${e}Installments${part}`,date:`${e}PaymentDate${part}`,platWrap:`${e}PlatformWrap${part}`,instWrap:`${e}InstallmentsWrap${part}`,sum:`${e}CardSummary${part}`}}
-function renderPaymentFields(prefix,count=1){const container=$(prefix==='sale'?'salePaymentsContainer':'esPaymentsContainer');if(!container)return;count=Math.max(1,Math.min(3,Number(count)||1));let html='';for(let i=1;i<=count;i++){html+=`<div class="payment-box"><div class="small-note"><strong>Pagamento ${String(i).padStart(2,'0')}</strong>${i>1?' <span class="muted">opcional</span>':''}</div><div class="form-grid"><div><label>Data do pagamento</label><input id="${prefix}PaymentDate${i}" type="date" onchange="recalcCard('${prefix}')"></div><div><label>Valor</label><input id="${prefix}PaymentAmount${i}" type="number" min="0.01" step="0.01" oninput="recalcCard('${prefix}')"></div><div><label>Forma</label><select id="${prefix}Payment${i}" onchange="updateCardFields('${prefix}')"><option value="">Selecione</option><option value="avista">À vista / Pix</option><option value="parcelado">Cartão parcelado</option></select></div><div id="${prefix}PlatformWrap${i}"><label>Plataforma</label><select id="${prefix}Platform${i}" onchange="updateInstallmentOptions('${prefix}',${i});recalcCard('${prefix}')"><option value="">Selecione a plataforma</option></select></div><div id="${prefix}InstallmentsWrap${i}"><label>Parcelas</label><select id="${prefix}Installments${i}" onchange="recalcCard('${prefix}')"><option value="">Selecione</option></select></div><div id="${prefix}CardSummary${i}" class="small-note full"></div></div></div>`}container.innerHTML=html;for(let i=1;i<=count;i++){populatePlatformSelect(`${prefix}Platform${i}`)}updateCardFields(prefix)}
+function readPaymentDate(prefix,part=1){const r=paymentRefs(prefix,part),el=$(r.date);if(!el)return '';let v=String(el.value||'').trim();if(!v&&el.valueAsDate instanceof Date&&!isNaN(el.valueAsDate.getTime())){const d=el.valueAsDate;v=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}if(!v){const raw=String(el.getAttribute('value')||el.dataset.date||'').trim();const m=raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);if(m)v=`${m[3]}-${m[2]}-${m[1]}`}return v}
+function renderPaymentFields(prefix,count=1){const container=$(prefix==='sale'?'salePaymentsContainer':'esPaymentsContainer');if(!container)return;count=Math.max(1,Math.min(3,Number(count)||1));let html='';for(let i=1;i<=count;i++){html+=`<div class="payment-box"><div class="small-note"><strong>Pagamento ${String(i).padStart(2,'0')}</strong>${i>1?' <span class="muted">opcional</span>':''}</div><div class="form-grid"><div><label>Data do pagamento</label><input id="${prefix}PaymentDate${i}" type="date" onchange="this.dataset.date=this.value;recalcCard('${prefix}')" oninput="this.dataset.date=this.value;recalcCard('${prefix}')"></div><div><label>Valor</label><input id="${prefix}PaymentAmount${i}" type="number" min="0.01" step="0.01" oninput="recalcCard('${prefix}')"></div><div><label>Forma</label><select id="${prefix}Payment${i}" onchange="updateCardFields('${prefix}')"><option value="">Selecione</option><option value="avista">À vista / Pix</option><option value="parcelado">Cartão parcelado</option></select></div><div id="${prefix}PlatformWrap${i}"><label>Plataforma</label><select id="${prefix}Platform${i}" onchange="updateInstallmentOptions('${prefix}',${i});recalcCard('${prefix}')"><option value="">Selecione a plataforma</option></select></div><div id="${prefix}InstallmentsWrap${i}"><label>Parcelas</label><select id="${prefix}Installments${i}" onchange="recalcCard('${prefix}')"><option value="">Selecione</option></select></div><div id="${prefix}CardSummary${i}" class="small-note full"></div></div></div>`}container.innerHTML=html;for(let i=1;i<=count;i++){populatePlatformSelect(`${prefix}Platform${i}`)}updateCardFields(prefix)}
 function updateInstallmentOptions(prefix,part=1){const r=paymentRefs(prefix,part),sel=$(r.inst);if(!sel)return;const platform=$(r.platform).value,current=Number(sel.value||0);sel.innerHTML='<option value="">Selecione</option>'+Array.from({length:12},(_,i)=>{const n=i+1,rate=getCardRate(platform,n);return `<option value="${n}" ${rate===null?'disabled':''}>${n}x${rate===null?' — indisponível':` — ${(Number(rate||0)*100).toFixed(2).replace('.',',')}%`}</option>`}).join('');if(current>=1&&current<=12&&getCardRate(platform,current)!==null)sel.value=String(current)}
 function updateCardFields(prefix){const count=Number($(prefix==='sale'?'salePaymentCount':'esPaymentCount')?.value||1);for(let part=1;part<=count;part++){const r=paymentRefs(prefix,part),payment=$(r.pay);if(!payment)continue;const card=payment.value==='parcelado';$(r.platWrap).style.display=card?'block':'none';$(r.instWrap).style.display=card?'block':'none';if(card)updateInstallmentOptions(prefix,part);else{$(r.platform).value='';$(r.inst).innerHTML='<option value="">Selecione</option>';if(r.sum)$(r.sum).textContent=payment.value==='avista'?'À vista / Pix: sem desconto (0%).':''}}recalcCard(prefix)}
-function recalcCard(prefix){const count=Number($(prefix==='sale'?'salePaymentCount':'esPaymentCount')?.value||1),parts=[];let grossTotal=0,netTotal=0,feeTotal=0,valid=true,maxInstallments=0;for(let i=1;i<=count;i++){const r=paymentRefs(prefix,i),amount=Number($(r.amount)?.value||0),payment=$(r.pay)?.value||'',platform=$(r.platform)?.value||'',n=Number($(r.inst)?.value||0),date=$(r.date)?.value||'';if(amount<=0){continue}if(!date||!payment){valid=false;continue}let fee=0,net=amount,rate=0;if(payment==='parcelado'){rate=getCardRate(platform,n);if(rate===null){valid=false;$(r.sum).textContent=platform&&n?`Taxa não disponível para ${platform} em ${n}x.`:'Selecione plataforma e parcelas.';continue}fee=Number((amount*Number(rate||0)).toFixed(2));net=Number((amount-fee).toFixed(2));maxInstallments=Math.max(maxInstallments,n);$(r.sum).textContent=`Taxa: ${(Number(rate||0)*100).toFixed(2).replace('.',',')}% • Desconto: ${money(fee)} • Líquido: ${money(net)}`;}else if(payment==='avista'){$(r.sum).textContent='À vista / Pix: sem desconto (0%).';}else{valid=false;continue}grossTotal+=amount;netTotal+=net;feeTotal+=fee}if(valid&&grossTotal>0){$(prefix==='sale'?'amount':'esAmount').value=netTotal.toFixed(2);$(prefix==='sale'?'totalSummary':'esTotalSummary').textContent=`Total bruto: ${money(grossTotal)} • Desconto total: ${money(feeTotal)} • Líquido no ranking: ${money(netTotal)}${count>1?' • '+String(count).padStart(2,'0')+' pagamentos':''}${maxInstallments?' • Premiação: '+maxInstallments+'x':''}`;}else{$(prefix==='sale'?'amount':'esAmount').value='';$(prefix==='sale'?'totalSummary':'esTotalSummary').textContent='';}}
+function recalcCard(prefix){const count=Number($(prefix==='sale'?'salePaymentCount':'esPaymentCount')?.value||1),parts=[];let grossTotal=0,netTotal=0,feeTotal=0,valid=true,maxInstallments=0;for(let i=1;i<=count;i++){const r=paymentRefs(prefix,i),amount=Number($(r.amount)?.value||0),payment=readPaymentForm(prefix,i),platform=$(r.platform)?.value||'',n=Number($(r.inst)?.value||0),date=readPaymentDate(prefix,i);if(amount<=0){continue}if(!date||!payment){valid=false;continue}let fee=0,net=amount,rate=0;if(payment==='parcelado'){rate=getCardRate(platform,n);if(rate===null){valid=false;$(r.sum).textContent=platform&&n?`Taxa não disponível para ${platform} em ${n}x.`:'Selecione plataforma e parcelas.';continue}fee=Number((amount*Number(rate||0)).toFixed(2));net=Number((amount-fee).toFixed(2));maxInstallments=Math.max(maxInstallments,n);$(r.sum).textContent=`Taxa: ${(Number(rate||0)*100).toFixed(2).replace('.',',')}% • Desconto: ${money(fee)} • Líquido: ${money(net)}`;}else if(payment==='avista'){$(r.sum).textContent='À vista / Pix: sem desconto (0%).';}else{valid=false;continue}grossTotal+=amount;netTotal+=net;feeTotal+=fee}if(valid&&grossTotal>0){$(prefix==='sale'?'amount':'esAmount').value=netTotal.toFixed(2);$(prefix==='sale'?'totalSummary':'esTotalSummary').textContent=`Total bruto: ${money(grossTotal)} • Desconto total: ${money(feeTotal)} • Líquido no ranking: ${money(netTotal)}${count>1?' • '+String(count).padStart(2,'0')+' pagamentos':''}${maxInstallments?' • Premiação: '+maxInstallments+'x':''}`;}else{$(prefix==='sale'?'amount':'esAmount').value='';$(prefix==='sale'?'totalSummary':'esTotalSummary').textContent='';}}
 async function openEditSale(id){const rows=await api('/api/sales?month='+encodeURIComponent($('month').value||monthNow()));const s=rows.find(x=>x.id===id);if(!s)return;if(me.role==='ranking_admin')return toast('Este acesso não pode editar vendas');if(me.role==='admin')usersCache=await api('/api/users');$('esId').value=s.id;$('esClient').value=s.client_name;$('esBirthDate').value=s.birth_date||'';const count=s.payment_amount_3>0?3:(s.payment_amount_2>0?2:1);$('esPaymentCount').value=String(count);renderPaymentFields('es',count);for(let i=1;i<=count;i++){const suf=i===1?'':'_'+i;$(paymentRefs('es',i).amount).value=i===1?(Number(s.gross_amount||0)-Number(s.payment_amount_2||0)-Number(s.payment_amount_3||0)):Number(s[`payment_amount${suf}`]||0);$(paymentRefs('es',i).pay).value=s[`payment_type${suf}`]||'';$(paymentRefs('es',i).date).value=s[`payment_date${suf}`]||s.sale_date||'';$(paymentRefs('es',i).platform).value=s[`card_platform${suf}`]||'';updateInstallmentOptions('es',i);$(paymentRefs('es',i).inst).value=s[`installments${suf}`]||''}updateCardFields('es');fillStates('esState');$('esState').value=s.state||'';const cs=me.role==='admin'?usersCache.filter(u=>u.role==='consultant'):[];$('esConsultant').innerHTML=me.role==='admin'?cs.map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join():`<option value="${me.id}">${esc(me.name)}</option>`;$('esConsultant').value=s.consultant_id;$('esConsultant').disabled=me.role!=='admin';$('esSource').innerHTML=sourcesCache.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('');$('esSource').value=s.lead_source_id||'';$('editSaleModal').classList.remove('hidden')}
+function closeModal(id){const el=$(id);if(el)el.classList.add('hidden');}
+function openSale(){
+  if(me?.role==='ranking_admin') return toast('Este acesso não pode lançar vendas');
+  $('client').value='';
+  $('clientBirthDate').value='';
+  $('clientAgePreview').textContent='';
+  $('salePaymentCount').value='1';
+  $('amount').value='';
+  $('totalSummary').textContent='';
+  fillStates('saleState');
+  $('saleState').value='';
+  $('saleSource').innerHTML='<option value="">Selecione</option>'+sourcesCache.filter(s=>s.active).map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  const admin=me?.role==='admin';
+  if(admin){
+    const cs=(usersCache||[]).filter(u=>u.role==='consultant'&&u.active);
+    $('saleConsultant').innerHTML='<option value="">Selecione</option>'+cs.map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('');
+    $('saleConsultant').value='';
+    $('consultantField').classList.remove('hidden');
+  }else{
+    $('saleConsultant').innerHTML=`<option value="${me.id}">${esc(me.name)}</option>`;
+    $('saleConsultant').value=String(me.id);
+    $('consultantField').classList.add('hidden');
+  }
+  document.querySelectorAll('.input-error').forEach(el=>el.classList.remove('input-error'));
+  renderPaymentFields('sale',1);
+  $('saleModal').classList.remove('hidden');
+  setTimeout(()=>$('client')?.focus(),0);
+}
+
 function markMissing(prefix, ids){
   document.querySelectorAll('.input-error').forEach(el=>el.classList.remove('input-error'));
   ids.forEach(id=>$(id)?.classList.add('input-error'));
   if(ids[0]) $(ids[0])?.focus();
+}
+function normalizePaymentTypeValue(value){
+  const v=String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  if(v==='avista'||v==='a vista'||v==='pix'||v.includes('avista')||v.includes('pix'))return 'avista';
+  if(v==='parcelado'||v.includes('parcelado')||v.includes('cartao'))return 'parcelado';
+  return '';
+}
+function readPaymentForm(prefix,part=1){
+  const r=paymentRefs(prefix,part), el=$(r.pay);
+  if(!el)return '';
+  const value=normalizePaymentTypeValue(el.value);
+  if(value)return value;
+  const opt=el.options?.[el.selectedIndex];
+  return normalizePaymentTypeValue(opt?.textContent||'');
 }
 function validateSaleForm(prefix){
   const missing=[], ids=[], count=Number($(prefix==='sale'?'salePaymentCount':'esPaymentCount')?.value||1);
@@ -290,12 +342,13 @@ function validateSaleForm(prefix){
   const add=(label,id)=>{if(!missing.includes(label))missing.push(label);if(id&&!ids.includes(id))ids.push(id)};
   if(!$(base.client)?.value.trim()) add('Cliente',base.client);
   if(!$(base.birth)?.value) add('Data de nascimento',base.birth);
+  else { const bd=new Date($(base.birth).value+'T00:00:00'); const now=new Date(); let age=now.getFullYear()-bd.getFullYear(); const md=now.getMonth()-bd.getMonth(); if(md<0||(md===0&&now.getDate()<bd.getDate()))age--; if(!Number.isFinite(age)||age<18||age>120)add('Data de nascimento válida (18+)',base.birth); }
   if(!$(base.state)?.value) add('Estado',base.state);
   if(!$(base.source)?.value) add('Origem do lead',base.source);
   if(prefix==='sale'&&me?.role==='admin'&&!Number($(base.consultant)?.value||0)) add('Consultor',base.consultant);
   for(let i=1;i<=count;i++){
     const r=paymentRefs(prefix,i), label=`Pagamento ${String(i).padStart(2,'0')}`;
-    const amount=Number($(r.amount)?.value||0), form=$(r.pay)?.value||'', date=$(r.date)?.value||'';
+    const amount=Number($(r.amount)?.value||0), form=readPaymentForm(prefix,i), date=readPaymentDate(prefix,i);
     if(amount<=0) add(`${label}: valor`,r.amount);
     if(!date) add(`${label}: data`,r.date);
     if(!form) add(`${label}: forma de pagamento`,r.pay);
@@ -307,8 +360,35 @@ function validateSaleForm(prefix){
   markMissing(prefix,ids);
   return missing;
 }
-async function saveEditSale(){try{const missing=validateSaleForm('es');if(missing.length){toast('Falta preencher: '+missing.join(', '));return;}const count=Number($('esPaymentCount').value||1),payload={client_name:$('esClient').value.trim(),birth_date:$('esBirthDate').value,state:$('esState').value,lead_source_id:Number($('esSource').value),consultant_id:Number($('esConsultant').value)};for(let i=1;i<=count;i++){const r=paymentRefs('es',i),suf=i===1?'':'_'+i;payload[`payment_amount${suf}`]=$(r.amount).value;payload[`payment_type${suf}`]=$(r.pay).value;payload[`installments${suf}`]=$(r.inst).value?Number($(r.inst).value):null;payload[`card_platform${suf}`]=$(r.platform).value||null;payload[`payment_date${suf}`]=$(r.date).value}await api('/api/sales/'+$('esId').value,{method:'PATCH',body:JSON.stringify(payload)});closeModal('editSaleModal');toast('Venda corrigida!');refreshAll()}catch(e){toast(e.message)}}
-async function saveSale(){try{const missing=validateSaleForm('sale');if(missing.length){toast('Falta preencher: '+missing.join(', '));return;}const count=Number($('salePaymentCount').value||1),payload={client_name:$('client').value.trim(),birth_date:$('clientBirthDate').value,state:$('saleState').value,lead_source_id:Number($('saleSource').value)};for(let i=1;i<=count;i++){const r=paymentRefs('sale',i),suf=i===1?'':'_'+i;payload[`payment_amount${suf}`]=$(r.amount).value;payload[`payment_type${suf}`]=$(r.pay).value;payload[`installments${suf}`]=$(r.inst).value?Number($(r.inst).value):null;payload[`card_platform${suf}`]=$(r.platform).value||null;payload[`payment_date${suf}`]=$(r.date).value}if(me.role==='admin')payload.consultant_id=Number($('saleConsultant').value);await api('/api/sales',{method:'POST',body:JSON.stringify(payload)});closeModal('saleModal');toast('Venda registrada!');refreshAll()}catch(e){toast(e.message)}}
+async function saveEditSale(){
+  try{
+    const missing=validateSaleForm('es');
+    if(missing.length){toast('Falta preencher: '+missing.join(', '));return;}
+    const count=Number($('esPaymentCount').value||1);
+    const payload={client_name:$('esClient').value.trim(),birth_date:$('esBirthDate').value,state:$('esState').value,lead_source_id:Number($('esSource').value),consultant_id:Number($('esConsultant').value)};
+    for(let i=1;i<=3;i++){
+      const r=paymentRefs('es',i),suf=i===1?'':'_'+i;
+      if(i<=count){
+        payload[`payment_amount${i===1?'_1':suf}`]=$(r.amount).value;
+        payload[`payment_type${i===1?'_1':suf}`]=readPaymentForm('es',i);
+        payload[`installments${i===1?'_1':suf}`]=$(r.inst).value?Number($(r.inst).value):null;
+        payload[`card_platform${i===1?'_1':suf}`]=$(r.platform).value||null;
+        payload[`payment_date${i===1?'_1':suf}`]=readPaymentDate('es',i);
+      }else{
+        payload[`payment_amount${i===1?'_1':suf}`]=0;
+        payload[`payment_type${i===1?'_1':suf}`]=null;
+        payload[`installments${i===1?'_1':suf}`]=null;
+        payload[`card_platform${i===1?'_1':suf}`]=null;
+        payload[`payment_date${i===1?'_1':suf}`]=null;
+      }
+    }
+    const updated=await api('/api/sales/'+$('esId').value,{method:'PATCH',body:JSON.stringify(payload)});
+    closeModal('editSaleModal');
+    toast(updated?.message||'Venda corrigida e salva no banco!');
+    await refreshAll();
+  }catch(e){toast(e.message)}
+}
+async function saveSale(){try{const missing=validateSaleForm('sale');if(missing.length){toast('Falta preencher: '+missing.join(', '));return;}const count=Number($('salePaymentCount').value||1),payload={client_name:$('client').value.trim(),birth_date:$('clientBirthDate').value,state:$('saleState').value,lead_source_id:Number($('saleSource').value)};for(let i=1;i<=count;i++){const r=paymentRefs('sale',i),suf=i===1?'':'_'+i,date=readPaymentDate('sale',i);payload[`payment_amount${i===1?'_1':suf}`]=$(r.amount).value;payload[`payment_type${i===1?'_1':suf}`]=readPaymentForm('sale',i);payload[`installments${i===1?'_1':suf}`]=$(r.inst).value?Number($(r.inst).value):null;payload[`card_platform${i===1?'_1':suf}`]=$(r.platform).value||null;payload[`payment_date${i===1?'_1':suf}`]=date}if(me.role==='admin')payload.consultant_id=Number($('saleConsultant').value);await api('/api/sales',{method:'POST',body:JSON.stringify(payload)});closeModal('saleModal');toast('Venda registrada!');refreshAll()}catch(e){toast(e.message)}}
 let newUserRole='consultant';
 function openUser(role='consultant'){newUserRole=role;photoData=null;$('uPhoto').value='';$('uPreview').removeAttribute('src');['uName','uEmail','uPassword','uGoal'].forEach(x=>$(x).value='');$('uTeam').value='A';$('userModalTitle').textContent=role==='ranking_admin'?'Novo login ADM Ranking':'Novo consultor';$('uGoalWrap').classList.toggle('hidden',role==='ranking_admin');$('uTeamWrap').classList.toggle('hidden',role==='ranking_admin');$('userModal').classList.remove('hidden');$('uName').focus()}
 async function saveUser(){try{await api('/api/users',{method:'POST',body:JSON.stringify({name:$('uName').value,email:$('uEmail').value,password:$('uPassword').value,goal:$('uGoal').value,photo_data:photoData,role:newUserRole,team:$('uTeam').value})});closeModal('userModal');toast(newUserRole==='ranking_admin'?'Login ADM Ranking cadastrado!':'Consultor cadastrado!');await loadTeam();await loadLookups();refreshAll()}catch(e){toast(e.message)}}
