@@ -321,12 +321,15 @@ function normalizePaymentTypeValue(value){
   return '';
 }
 function readPaymentForm(prefix,part=1){
-  const r=paymentRefs(prefix,part), el=$(r.pay);
+  const r=paymentRefs(prefix,part),el=$(r.pay);
   if(!el)return '';
-  const value=normalizePaymentTypeValue(el.value);
-  if(value)return value;
-  const opt=el.options?.[el.selectedIndex];
-  return normalizePaymentTypeValue(opt?.textContent||'');
+  const selected=el.options?.[el.selectedIndex];
+  const raw=String(el.value??'').trim();
+  const text=String(selected?.textContent??'').trim();
+  const normalized=normalizePaymentTypeValue(raw)||normalizePaymentTypeValue(text);
+  if(normalized)return normalized;
+  if(selected&&el.selectedIndex>0)return 'avista';
+  return '';
 }
 function validateSaleForm(prefix){
   const missing=[], ids=[], count=Number($(prefix==='sale'?'salePaymentCount':'esPaymentCount')?.value||1);
