@@ -101,6 +101,7 @@ const dbRun = async (sql, params=[]) => {
 
 app.use(express.json({limit:'4mb'}));
 app.use((req,res,next)=>{if(req.path==='/'||req.path.endsWith('.html')||req.path.startsWith('/api/'))res.setHeader('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');next()});
+app.get('/',(req,res)=>res.sendFile(path.join(__dirname,'public','index.html'),{headers:{'Cache-Control':'no-store, no-cache, must-revalidate, proxy-revalidate','Pragma':'no-cache','Expires':'0'}}));
 app.use(express.static(path.join(__dirname,'public'),{setHeaders:(res,filePath)=>{if(filePath.endsWith('.html')){res.setHeader('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');res.setHeader('Pragma','no-cache');res.setHeader('Expires','0')}}}));
 
 async function init(){
@@ -373,12 +374,12 @@ app.get('/api/sales',auth,async(req,res)=>{
 app.post('/api/sales',auth,async(req,res)=>{
   try{
     const {client_name,birth_date}=req.body||{};
-    const paymentDate1=String(req.body?.payment_date_1||req.body?.sale_date||'');
+    const paymentDate1=String(req.body?.payment_date_1||req.body?.payment_date||req.body?.sale_date||'');
     const saleDate=paymentDate1, birthDate=String(birth_date||''), state=normalizeState(req.body?.state), sourceId=Number(req.body?.lead_source_id||0);
     const age=calculateAge(birthDate,saleDate), parts=[];
     for(let i=1;i<=3;i++){
       const suf=i===1?'':'_'+i, amount=Number(req.body?.[`payment_amount${suf}`] ?? (i===1?(req.body?.payment_amount_1??req.body?.gross_amount??0):0));
-      const type=normalizePaymentType(req.body?.[`payment_type${suf}`]);
+      const type=normalizePaymentType(req.body?.[`payment_type${suf}`] ?? (i===1?req.body?.payment_type:null));
       const installments=req.body?.[`installments${suf}`]===undefined||req.body?.[`installments${suf}`]===''?null:Number(req.body[`installments${suf}`]);
       const platform=String(req.body?.[`card_platform${suf}`]||'').trim()||null;
       const date=String(req.body?.[`payment_date${suf}`]||(i===1?saleDate:''));
