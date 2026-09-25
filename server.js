@@ -398,7 +398,7 @@ app.post('/api/sales',auth,async(req,res)=>{
     const gross=Number(parts.reduce((a,p)=>a+p.amount,0).toFixed(2)), value=Number(parts.reduce((a,p)=>a+(p.calc?.net||0),0).toFixed(2));
     const p1=parts[0],p2=parts[1],p3=parts[2];
     const result=await dbRun(`INSERT INTO sales (consultant_id,client_name,client_age,birth_date,amount,gross_amount,sale_date,state,lead_source_id,payment_type,installments,card_platform,card_fee_rate,card_fee_amount,payment_date_1,payment_amount_2,payment_type_2,installments_2,card_platform_2,card_fee_rate_2,card_fee_amount_2,payment_date_2,payment_amount_3,payment_type_3,installments_3,card_platform_3,card_fee_rate_3,card_fee_amount_3,payment_date_3) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,[consultantId,String(client_name).trim(),age,birthDate,value,gross,saleDate,state,sourceId,p1.type,p1.installments,p1.platform,p1.calc?.rate??0,p1.calc?.fee??0,p1.date,p2.amount||0,p2.amount?p2.type:null,p2.amount?p2.installments:null,p2.amount?p2.platform:null,p2.calc?.rate??0,p2.calc?.fee??0,p2.amount?p2.date:null,p3.amount||0,p3.amount?p3.type:null,p3.amount?p3.installments:null,p3.amount?p3.platform:null,p3.calc?.rate??0,p3.calc?.fee??0,p3.amount?p3.date:null]);
-    res.json({id:result.lastID});
+    const created=await dbGet('SELECT * FROM sales WHERE id=?',[result.lastID]);res.json({ok:true,id:result.lastID,sale:created});
   }catch(e){console.error(e);res.status(500).json({error:'Não foi possível registrar a venda'})}
 });
 
