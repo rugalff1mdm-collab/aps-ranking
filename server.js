@@ -31,6 +31,12 @@ function calculateCardValues(gross, platform, installments){
   const fee=Number((g*rate).toFixed(2));
   return {rate, fee, net:Number((g-fee).toFixed(2))};
 }
+function normalizePaymentType(value){
+  const v=String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  if(v==='avista'||v==='a vista'||v==='pix'||v.includes('avista')||v.includes('pix'))return 'avista';
+  if(v==='parcelado'||v.includes('parcelado')||v.includes('cartao'))return 'parcelado';
+  return '';
+}
 function calculatePaymentPart(amount, type, platform, installments){
   const v=Number(amount||0);
   if(!Number.isFinite(v) || v<0) return null;
@@ -94,6 +100,7 @@ const dbRun = async (sql, params=[]) => {
 };
 
 app.use(express.json({limit:'4mb'}));
+app.use((req,res,next)=>{if(req.path==='/'||req.path.endsWith('.html'))res.setHeader('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');next()});
 app.use(express.static(path.join(__dirname,'public')));
 
 async function init(){
@@ -371,7 +378,7 @@ app.post('/api/sales',auth,async(req,res)=>{
     const age=calculateAge(birthDate,saleDate), parts=[];
     for(let i=1;i<=3;i++){
       const suf=i===1?'':'_'+i, amount=Number(req.body?.[`payment_amount${suf}`] ?? (i===1?(req.body?.payment_amount_1??req.body?.gross_amount??0):0));
-      const type=String(req.body?.[`payment_type${suf}`]||'').toLowerCase();
+      const type=normalizePaymentType(req.body?.[`payment_type${suf}`]);
       const installments=req.body?.[`installments${suf}`]===undefined||req.body?.[`installments${suf}`]===''?null:Number(req.body[`installments${suf}`]);
       const platform=String(req.body?.[`card_platform${suf}`]||'').trim()||null;
       const date=String(req.body?.[`payment_date${suf}`]||(i===1?saleDate:''));
@@ -410,7 +417,7 @@ app.patch('/api/sales/:id',auth,async(req,res)=>{
     for(let i=1;i<=3;i++){
       const suf=i===1?'':'_'+i, oldAmt=i===1?Number(s.gross_amount||0)-Number(s.payment_amount_2||0)-Number(s.payment_amount_3||0):Number(s[`payment_amount${suf}`]||0);
       const amount=Number(req.body?.[`payment_amount${suf}`] ?? (i===1?oldAmt:0));
-      const type=String(req.body?.[`payment_type${suf}`]??s[`payment_type${suf}`]??'').toLowerCase();
+      const type=normalizePaymentType(req.body?.[`payment_type${suf}`]??s[`payment_type${suf}`]??'');
       const installments=req.body?.[`installments${suf}`]===undefined||req.body?.[`installments${suf}`]===''?(s[`installments${suf}`]??null):Number(req.body[`installments${suf}`]);
       const platform=String(req.body?.[`card_platform${suf}`]??s[`card_platform${suf}`]??'').trim()||null, pdate=String(req.body?.[`payment_date${suf}`]??s[`payment_date${suf}`]??(i===1?date:''));
       const calc=amount>0?calculatePaymentPart(amount,type,platform,installments||1):{rate:0,fee:0,net:0}; parts.push({amount,type,installments,platform,date:pdate,calc});

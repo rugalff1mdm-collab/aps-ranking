@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>APS SOLUÇÕES • Ranking de Vendas</title>
+<title>APS SOLUÇÕES • Ranking de Vendas • v8.2.44</title>
 <style>
 :root{--bg:#f5f7fb;--card:#fff;--text:#172033;--muted:#667085;--line:#e5e7eb;--accent:#2457d6;--accent2:#0f3fae;--dark:#101828;--ok:#12b76a;--warn:#f79009;--danger:#b42318;--soft:#eef4ff;--shadow:0 12px 35px rgba(16,24,40,.07)}
 *{box-sizing:border-box}html,body{margin:0;width:100%;min-height:100%;overflow-x:auto}body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}button,input,select{font:inherit}.hidden{display:none!important}.muted{color:var(--muted);font-size:13px}.eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;font-weight:900;color:#8b98ad}.brand-title{line-height:.92;letter-spacing:-.055em}.brand-title .company{display:block;font-size:28px;font-weight:950}.brand-title .sub{display:block;margin-top:5px;font-size:13px;letter-spacing:.16em;font-weight:800;color:#93a4bd}
@@ -314,16 +314,19 @@ function markMissing(prefix, ids){
   ids.forEach(id=>$(id)?.classList.add('input-error'));
   if(ids[0]) $(ids[0])?.focus();
 }
+function normalizePaymentTypeValue(value){
+  const v=String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  if(v==='avista'||v==='a vista'||v==='pix'||v.includes('avista')||v.includes('pix'))return 'avista';
+  if(v==='parcelado'||v.includes('parcelado')||v.includes('cartao'))return 'parcelado';
+  return '';
+}
 function readPaymentForm(prefix,part=1){
   const r=paymentRefs(prefix,part), el=$(r.pay);
   if(!el)return '';
-  const value=String(el.value||'').trim().toLowerCase();
-  if(value==='avista'||value==='parcelado')return value;
+  const value=normalizePaymentTypeValue(el.value);
+  if(value)return value;
   const opt=el.options?.[el.selectedIndex];
-  const text=String(opt?.textContent||'').trim().toLowerCase();
-  if(text.includes('à vista')||text.includes('a vista')||text.includes('pix'))return 'avista';
-  if(text.includes('parcelado')||text.includes('cartão'))return 'parcelado';
-  return '';
+  return normalizePaymentTypeValue(opt?.textContent||'');
 }
 function validateSaleForm(prefix){
   const missing=[], ids=[], count=Number($(prefix==='sale'?'salePaymentCount':'esPaymentCount')?.value||1);
@@ -337,7 +340,7 @@ function validateSaleForm(prefix){
   if(prefix==='sale'&&me?.role==='admin'&&!Number($(base.consultant)?.value||0)) add('Consultor',base.consultant);
   for(let i=1;i<=count;i++){
     const r=paymentRefs(prefix,i), label=`Pagamento ${String(i).padStart(2,'0')}`;
-    const amount=Number($(r.amount)?.value||0), form=$(r.pay)?.value||'', date=readPaymentDate(prefix,i);
+    const amount=Number($(r.amount)?.value||0), form=readPaymentForm(prefix,i), date=readPaymentDate(prefix,i);
     if(amount<=0) add(`${label}: valor`,r.amount);
     if(!date) add(`${label}: data`,r.date);
     if(!form) add(`${label}: forma de pagamento`,r.pay);
@@ -349,8 +352,8 @@ function validateSaleForm(prefix){
   markMissing(prefix,ids);
   return missing;
 }
-async function saveEditSale(){try{const missing=validateSaleForm('es');if(missing.length){toast('Falta preencher: '+missing.join(', '));return;}const count=Number($('esPaymentCount').value||1),payload={client_name:$('esClient').value.trim(),birth_date:$('esBirthDate').value,state:$('esState').value,lead_source_id:Number($('esSource').value),consultant_id:Number($('esConsultant').value)};for(let i=1;i<=count;i++){const r=paymentRefs('es',i),suf=i===1?'':'_'+i,date=readPaymentDate('es',i);payload[`payment_amount${i===1?'_1':suf}`]=$(r.amount).value;payload[`payment_type${i===1?'_1':suf}`]=$(r.pay).value;payload[`installments${i===1?'_1':suf}`]=$(r.inst).value?Number($(r.inst).value):null;payload[`card_platform${i===1?'_1':suf}`]=$(r.platform).value||null;payload[`payment_date${i===1?'_1':suf}`]=date}await api('/api/sales/'+$('esId').value,{method:'PATCH',body:JSON.stringify(payload)});closeModal('editSaleModal');toast('Venda corrigida!');refreshAll()}catch(e){toast(e.message)}}
-async function saveSale(){try{const missing=validateSaleForm('sale');if(missing.length){toast('Falta preencher: '+missing.join(', '));return;}const count=Number($('salePaymentCount').value||1),payload={client_name:$('client').value.trim(),birth_date:$('clientBirthDate').value,state:$('saleState').value,lead_source_id:Number($('saleSource').value)};for(let i=1;i<=count;i++){const r=paymentRefs('sale',i),suf=i===1?'':'_'+i,date=readPaymentDate('sale',i);payload[`payment_amount${i===1?'_1':suf}`]=$(r.amount).value;payload[`payment_type${i===1?'_1':suf}`]=$(r.pay).value;payload[`installments${i===1?'_1':suf}`]=$(r.inst).value?Number($(r.inst).value):null;payload[`card_platform${i===1?'_1':suf}`]=$(r.platform).value||null;payload[`payment_date${i===1?'_1':suf}`]=date}if(me.role==='admin')payload.consultant_id=Number($('saleConsultant').value);await api('/api/sales',{method:'POST',body:JSON.stringify(payload)});closeModal('saleModal');toast('Venda registrada!');refreshAll()}catch(e){toast(e.message)}}
+async function saveEditSale(){try{const missing=validateSaleForm('es');if(missing.length){toast('Falta preencher: '+missing.join(', '));return;}const count=Number($('esPaymentCount').value||1),payload={client_name:$('esClient').value.trim(),birth_date:$('esBirthDate').value,state:$('esState').value,lead_source_id:Number($('esSource').value),consultant_id:Number($('esConsultant').value)};for(let i=1;i<=count;i++){const r=paymentRefs('es',i),suf=i===1?'':'_'+i,date=readPaymentDate('es',i);payload[`payment_amount${i===1?'_1':suf}`]=$(r.amount).value;payload[`payment_type${i===1?'_1':suf}`]=readPaymentForm('es',i);payload[`installments${i===1?'_1':suf}`]=$(r.inst).value?Number($(r.inst).value):null;payload[`card_platform${i===1?'_1':suf}`]=$(r.platform).value||null;payload[`payment_date${i===1?'_1':suf}`]=date}await api('/api/sales/'+$('esId').value,{method:'PATCH',body:JSON.stringify(payload)});closeModal('editSaleModal');toast('Venda corrigida!');refreshAll()}catch(e){toast(e.message)}}
+async function saveSale(){try{const missing=validateSaleForm('sale');if(missing.length){toast('Falta preencher: '+missing.join(', '));return;}const count=Number($('salePaymentCount').value||1),payload={client_name:$('client').value.trim(),birth_date:$('clientBirthDate').value,state:$('saleState').value,lead_source_id:Number($('saleSource').value)};for(let i=1;i<=count;i++){const r=paymentRefs('sale',i),suf=i===1?'':'_'+i,date=readPaymentDate('sale',i);payload[`payment_amount${i===1?'_1':suf}`]=$(r.amount).value;payload[`payment_type${i===1?'_1':suf}`]=readPaymentForm('sale',i);payload[`installments${i===1?'_1':suf}`]=$(r.inst).value?Number($(r.inst).value):null;payload[`card_platform${i===1?'_1':suf}`]=$(r.platform).value||null;payload[`payment_date${i===1?'_1':suf}`]=date}if(me.role==='admin')payload.consultant_id=Number($('saleConsultant').value);await api('/api/sales',{method:'POST',body:JSON.stringify(payload)});closeModal('saleModal');toast('Venda registrada!');refreshAll()}catch(e){toast(e.message)}}
 let newUserRole='consultant';
 function openUser(role='consultant'){newUserRole=role;photoData=null;$('uPhoto').value='';$('uPreview').removeAttribute('src');['uName','uEmail','uPassword','uGoal'].forEach(x=>$(x).value='');$('uTeam').value='A';$('userModalTitle').textContent=role==='ranking_admin'?'Novo login ADM Ranking':'Novo consultor';$('uGoalWrap').classList.toggle('hidden',role==='ranking_admin');$('uTeamWrap').classList.toggle('hidden',role==='ranking_admin');$('userModal').classList.remove('hidden');$('uName').focus()}
 async function saveUser(){try{await api('/api/users',{method:'POST',body:JSON.stringify({name:$('uName').value,email:$('uEmail').value,password:$('uPassword').value,goal:$('uGoal').value,photo_data:photoData,role:newUserRole,team:$('uTeam').value})});closeModal('userModal');toast(newUserRole==='ranking_admin'?'Login ADM Ranking cadastrado!':'Consultor cadastrado!');await loadTeam();await loadLookups();refreshAll()}catch(e){toast(e.message)}}
