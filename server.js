@@ -74,11 +74,16 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const pool = new Pool({
-  connectionString: DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  max: 5,
-});
+// Em Cloudflare Workers, NÃO crie um Pool no escopo global.
+// O Hyperdrive/pg deve abrir o Client dentro de cada request.
+// O Pool fica disponível apenas no servidor Node local.
+const pool = IS_CF_WORKER
+  ? null
+  : new Pool({
+      connectionString: DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+      max: 5,
+    });
 
 async function dbQuery(sql, params=[]) {
   const finalSql = pgSql(sql, params);
