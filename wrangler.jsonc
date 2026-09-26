@@ -3,12 +3,22 @@
   "name": "aps-ranking",
   "main": "./worker.mjs",
   "compatibility_date": "2026-09-26",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*"],
+    "run_worker_first": [
+      "/api/*"
+    ],
     "not_found_handling": "single-page-application"
   },
-  "keep_vars": true
+  "keep_vars": true,
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "73837f9d3fc64328a6370f0849ef12fe"
+    }
+  ]
 }
