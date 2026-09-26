@@ -702,12 +702,12 @@ app.get('/api/prizes',auth,async(req,res)=>{
 });
 app.post('/api/prize-adjustments',auth,adminOnly,async(req,res)=>{
   try{
-    const b=req.body||{}, consultantId=Number(b.consultant_id||0), type=String(b.adjustment_type||''), amount=Math.abs(Number(b.amount||0)), date=String(b.adjustment_date||''), reason=String(b.reason||'').trim(), targetAwardKey=String(b.target_award_key||'').trim()||null;
+    const b=req.body||{}, consultantId=Number(b.consultant_id||0), type=String(b.adjustment_type||''), amount=Math.abs(Number(b.amount||0)), date=String(b.adjustment_date||''), reason=String(b.reason||'').trim();
     if(!consultantId||!['extra','cut'].includes(type)||!amount||!validDate(date)||!reason)return res.status(400).json({error:'Informe consultor, tipo, valor, data e motivo'});
-    if(type==='cut'&&!targetAwardKey)return res.status(400).json({error:'Selecione a premiação que será cortada'});
     const consultant=await dbGet("SELECT id FROM users WHERE id=? AND role='consultant'",[consultantId]);if(!consultant)return res.status(400).json({error:'Consultor inválido'});
+    // Corte manual é um ajuste independente: nunca fica vinculado a uma premiação específica.
     const signed=type==='cut'?-amount:amount, month=date.slice(0,7);
-    const r=await dbRun('INSERT INTO prize_adjustments(consultant_id,period_month,adjustment_type,amount,adjustment_date,reason,target_award_key) VALUES(?,?,?,?,?,?,?)',[consultantId,month,type,signed,date,reason,targetAwardKey]);
+    const r=await dbRun('INSERT INTO prize_adjustments(consultant_id,period_month,adjustment_type,amount,adjustment_date,reason,target_award_key) VALUES(?,?,?,?,?,?,NULL)',[consultantId,month,type,signed,date,reason]);
     res.json({ok:true,id:r.lastID});
   }catch(e){console.error('prize-adjustment',e);res.status(400).json({error:'Não foi possível salvar a premiação manual'})}
 });
