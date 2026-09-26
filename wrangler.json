@@ -2,13 +2,22 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "aps-ranking",
   "main": "worker.js",
-  "compatibility_date": "2026-09-25",
+  "compatibility_date": "2026-09-26",
   "compatibility_flags": [
     "nodejs_compat",
     "nodejs_compat_populate_process_env"
   ],
   "assets": {
     "directory": "./public",
-    "binding": "ASSETS"
-  }
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"],
+    "not_found_handling": "single-page-application"
+  },
+  "keep_vars": true,
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "73837f9d3fc64328a6370f0849ef12fe"
+    }
+  ]
 }
