@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "migrate": "node migrate-sqlite-to-postgres.js"
+    "migrate": "node migrate-sqlite-to-postgres.js",
+    "deploy": "npx wrangler deploy"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
