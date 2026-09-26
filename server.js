@@ -712,8 +712,21 @@ app.post('/api/prize-adjustments',auth,adminOnly,async(req,res)=>{
   }catch(e){console.error('prize-adjustment',e);res.status(400).json({error:'Não foi possível salvar a premiação manual'})}
 });
 app.delete('/api/prize-adjustments/:id',auth,adminOnly,async(req,res)=>{
-  try{const r=await dbGet('SELECT id FROM prize_adjustments WHERE id=?',[req.params.id]);if(!r)return res.status(404).json({error:'Lançamento não encontrado'});await dbRun('DELETE FROM prize_adjustments WHERE id=?',[req.params.id]);res.json({ok:true})}
-  catch(e){res.status(400).json({error:'Não foi possível excluir o lançamento'})}
+  try{
+    // O frontend usa o identificador visual "manual-123". Converte para o ID
+    // inteiro real antes de consultar/excluir no PostgreSQL.
+    const rawId=String(req.params.id||'').trim();
+    const id=Number(rawId.replace(/^manual-/i,''));
+    if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Lançamento manual inválido'});
+    const r=await dbGet('SELECT id FROM prize_adjustments WHERE id=?',[id]);
+    if(!r)return res.status(404).json({error:'Lançamento não encontrado'});
+    const deleted=await dbQuery('DELETE FROM prize_adjustments WHERE id=? RETURNING id',[id]);
+    if(!deleted.rows?.length)return res.status(404).json({error:'Lançamento não encontrado'});
+    res.json({ok:true});
+  }catch(e){
+    console.error('delete-prize-adjustment',e);
+    res.status(400).json({error:'Não foi possível excluir o lançamento'});
+  }
 });
 app.get('/api/prize-rules',auth,async(req,res)=>res.json(await dbAll('SELECT * FROM prize_rules ORDER BY active DESC,category,min_amount,id')));
 app.post('/api/prize-rules',auth,adminOnly,async(req,res)=>{
