@@ -409,6 +409,7 @@ function renderPrizeAmount(a){
   return money(n);
 }
 function renderPrizeTitle(a){return a.cut?(a.rule_name+' — CORTE'):a.manual?(a.adjustment_type==='cut'?'Corte manual':'Premiação manual extra'):a.rule_name}
+async function deleteManualPrize(id){if(me?.role!=='admin')return toast('Somente o ADMIN pode excluir lançamentos manuais');if(!confirm('Excluir este lançamento manual? Esta ação não pode ser desfeita.'))return;try{await api('/api/prize-adjustments/'+encodeURIComponent(id),{method:'DELETE'});toast('Lançamento manual excluído.');await loadPrizes()}catch(e){toast(e.message)}}
 function openManualPrize(){
   if(me?.role!=='admin') return toast('Somente o ADMIN pode lançar premiações manuais');
   const cs=(usersCache||[]).filter(u=>u.role==='consultant');
@@ -458,7 +459,7 @@ async function loadPrizes(){
       const total=consultantTotal+supervisorTotal;
       $('prizeHeadAdmin').innerHTML='<th>Consultor</th><th>Faturamento bruto</th><th>Prêmios</th><th>Total</th><th>Detalhes</th>';
       $('prizeTotal').textContent=money(total);$('prizeCount').textContent=d.consultants.reduce((a,c)=>a+c.awards.length,0);$('prizeRevenue').textContent=money(d.consultants.reduce((a,c)=>a+Number(c.gross_revenue||0),0));$('adminPrizeHeader').classList.remove('hidden');if($('adminPrizeTotal'))$('adminPrizeTotal').textContent=money(total);if($('adminPrizeCount'))$('adminPrizeCount').textContent=d.consultants.reduce((a,c)=>a+c.awards.length,0);if($('adminPrizeGross'))$('adminPrizeGross').textContent=money(d.consultants.reduce((a,c)=>a+Number(c.gross_revenue||0),0));
-      $('prizeTable').innerHTML=d.consultants.map(c=>`<tr><td><strong>${esc(c.name)}</strong></td><td>${money(c.gross_revenue||0)}</td><td>${c.awards.length}</td><td><strong>${money(c.total_prize)}</strong></td><td>${c.awards.slice(0,6).map(a=>`<div style="margin-bottom:6px"><span class="prize-pill">${renderPrizeAmount(a)}</span> ${esc(renderPrizeTitle(a))}<div class="small-note">${esc(a.reason)} • ${a.date}</div></div>`).join('')||'<span class="muted">Nenhum prêmio no mês</span>'}</td></tr>`).join('')||emptyRow(5);
+      $('prizeTable').innerHTML=d.consultants.map(c=>`<tr><td><strong>${esc(c.name)}</strong></td><td>${money(c.gross_revenue||0)}</td><td>${c.awards.length}</td><td><strong>${money(c.total_prize)}</strong></td><td>${c.awards.slice(0,6).map(a=>`<div style="margin-bottom:6px"><span class="prize-pill">${renderPrizeAmount(a)}</span> ${esc(renderPrizeTitle(a))}<div class="small-note">${esc(a.reason)} • ${a.date}${a.manual&&a.id?` • <button type="button" class="btn danger" style="padding:3px 7px;font-size:11px;margin-left:4px" onclick="deleteManualPrize('${String(a.id).replace(/'/g,'')}')">Excluir</button>`:''}</div></div>`).join('')||'<span class="muted">Nenhum prêmio no mês</span>'}</td></tr>`).join('')||emptyRow(5);
       $('myPrizeHistory').innerHTML=`<div class="muted">Consultoras: ${money(consultantTotal)} • Supervisor: ${money(supervisorTotal)} • <strong>Total geral: ${money(total)}</strong></div>`;await loadLosses();if(me.role==='ranking_admin')await loadLimitedSupervisor();
     }else{
       $('prizeTotal').textContent=money(mine?.total_prize||0);$('prizeCount').textContent=mine?.awards.length||0;$('prizeRevenue').textContent=money(mine?.gross_revenue||0);$('adminPrizeHeader').classList.add('hidden');
