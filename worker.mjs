@@ -1,4 +1,7 @@
 import { httpServerHandler } from "cloudflare:node";
+import { Client } from "pg";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
 let runtimeState = globalThis.__APS_RANKING_RUNTIME || {
   loaded: false,
@@ -7,6 +10,63 @@ let runtimeState = globalThis.__APS_RANKING_RUNTIME || {
   initPromise: null,
 };
 globalThis.__APS_RANKING_RUNTIME = runtimeState;
+
+async function loginDirect(request, workerEnv) {
+  try {
+    const body = await request.json();
+    const email = String(body?.email || '').trim().toLowerCase();
+    const password = String(body?.password || '');
+
+    if (!email || !password) {
+      return Response.json({ error: 'Informe e-mail e senha' }, { status: 400 });
+    }
+
+    if (!workerEnv.HYPERDRIVE?.connectionString) {
+      throw new Error('HYPERDRIVE não configurado.');
+    }
+
+    const client = new Client({
+      connectionString: workerEnv.HYPERDRIVE.connectionString,
+    });
+
+    try {
+      await client.connect();
+      const result = await client.query(
+        'SELECT * FROM users WHERE email=$1 AND active=1 LIMIT 1',
+        [email]
+      );
+      const user = result.rows[0];
+
+      if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+        return Response.json({ error: 'E-mail ou senha inválidos' }, { status: 401 });
+      }
+
+      const secret = workerEnv.JWT_SECRET || 'TROQUE-ESTE-SEGREDO-EM-PRODUCAO';
+      const token = jwt.sign(
+        { id: user.id, name: user.name, email: user.email, role: user.role },
+        secret,
+        { expiresIn: '7d' }
+      );
+
+      return Response.json({
+        token,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          goal: user.goal,
+          photo_data: user.photo_data || null,
+        },
+      });
+    } finally {
+      await client.end().catch(() => {});
+    }
+  } catch (error) {
+    console.error('Falha no login direto:', error);
+    return Response.json({ error: 'Erro interno ao realizar login' }, { status: 500 });
+  }
+}
 
 async function getRuntime(workerEnv) {
   if (!runtimeState.loaded) {
@@ -53,6 +113,10 @@ export default {
 
     if (!url.pathname.startsWith("/api/")) {
       return workerEnv.ASSETS.fetch(request);
+    }
+
+    if (url.pathname === '/api/login' && request.method === 'POST') {
+      return loginDirect(request, workerEnv);
     }
 
     try {
