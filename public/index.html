@@ -168,7 +168,7 @@ html,body{width:100%;max-width:100%;margin:0;overflow:hidden!important}
         <div class="card"><div class="label">Meta diária</div><div id="prizeDailyGoal" class="prize-total">R$ 7.500</div></div>
       </div>
       <div class="panel section-spacer">
-        <div class="panel-head"><div><h3>🎁 Premiações do mês</h3><div class="muted">As vendas antigas continuam no ranking, mas premiações começam somente a partir de 22/09/2026. Vendas anteriores não geram prêmio.</div></div></div>
+        <div class="panel-head"><div><h3>🎁 Premiações do mês</h3><div class="muted">As vendas antigas continuam no ranking, mas premiações começam somente a partir de 22/09/2026. Vendas anteriores não geram prêmio.</div></div><button id="manualPrizeBtn" class="btn primary" onclick="openManualPrize()">＋ Premiação manual</button></div>
         <div class="table-wrap"><table class="data-table prize-table"><thead><tr id="prizeHeadAdmin"><th>Consultor</th><th>Faturamento bruto</th><th>Prêmios</th><th>Total</th><th>Detalhes</th></tr></thead><tbody id="prizeTable"></tbody></table></div>
       </div>
       <div id="consultantPrizeTeam" class="hidden section-spacer">
@@ -228,6 +228,7 @@ html,body{width:100%;max-width:100%;margin:0;overflow:hidden!important}
 
 <div id="leadModal" class="modal hidden"><div class="modal-card"><div class="modal-head"><h3>Registrar leads</h3><button class="btn ghost" onclick="closeModal('leadModal')">✕</button></div><div class="form-grid"><div><label>Data</label><input id="leadDate" type="date"></div><div><label>Quantidade</label><input id="leadQty" type="number" min="1" step="1" placeholder="50"></div><div><label>Consultor</label><select id="leadConsultant"></select></div><div><label>Origem</label><select id="leadSource"></select></div><div class="full"><label>Estado</label><select id="leadState"></select></div></div><div class="actions"><button class="btn ghost" onclick="closeModal('leadModal')">Cancelar</button><button class="btn primary" onclick="saveLead()">Registrar leads</button></div></div></div>
 
+<div id="manualPrizeModal" class="modal hidden"><div class="modal-card"><div class="modal-head"><h3>🎁 Lançamento manual de premiação</h3><button class="btn ghost" onclick="closeModal('manualPrizeModal')">✕</button></div><div class="form-grid"><div><label>Consultor</label><select id="manualPrizeConsultant"></select></div><div><label>Tipo</label><select id="manualPrizeType" onchange="updateManualPrizeLabel()"><option value="extra">Premiação extra</option><option value="cut">Corte de premiação</option></select></div><div><label id="manualPrizeAmountLabel">Valor da premiação extra</label><input id="manualPrizeAmount" type="number" min="0.01" step="0.01" placeholder="50,00"></div><div><label>Data</label><input id="manualPrizeDate" type="date"></div><div class="full"><label>Motivo / observação</label><input id="manualPrizeReason" maxlength="250" placeholder="Ex.: prêmio especial, ajuste, desconto por ocorrência..."></div></div><div class="small-note" id="manualPrizeHelp">Premiação extra soma ao total da consultora.</div><div class="actions"><button class="btn ghost" onclick="closeModal('manualPrizeModal')">Cancelar</button><button class="btn primary" onclick="saveManualPrize()">Salvar lançamento</button></div></div></div>
 <div id="bigRanking" class="big-ranking hidden"><div class="big-head"><div><div class="eyebrow" style="color:#b7c7e7">APS SOLUÇÕES</div><h2>RANKING DE VENDAS</h2><div style="opacity:.72" id="bigSubtitle">Ranking por faturamento</div></div><button class="btn big-close" onclick="closeBigRanking()">✕ Fechar</button></div><div id="podium" class="podium"></div><div class="rest-ranking"><div class="rest-title">Demais posições</div><div class="muted" style="margin-bottom:8px">Ranking completo abaixo do pódio</div><div id="bigRest"></div></div></div>
 <div id="toast" class="toast"></div>
 
@@ -397,6 +398,33 @@ async function saveAccount(){try{await api('/api/me',{method:'PATCH',body:JSON.s
 
 function toggleInstallments(typeId,installId){const p=$(typeId).value;$(installId).parentElement.style.display=p==='parcelado'?'block':'none';if(p!=='parcelado')$(installId).value=''}
 function money2(v){return money(v)}
+function renderPrizeAmount(a){
+  const n=Number(a.amount||0);
+  if(a.manual&&a.adjustment_type==='cut') return '<span style="text-decoration:line-through">'+money(Math.abs(n))+'</span> <strong style="font-size:12px">− '+money(Math.abs(n))+'</strong>';
+  if(a.manual&&a.adjustment_type==='extra') return '<strong>+ '+money(Math.abs(n))+'</strong>';
+  return money(n);
+}
+function renderPrizeTitle(a){return a.manual?(a.adjustment_type==='cut'?'Corte manual':'Premiação manual extra'):a.rule_name}
+function openManualPrize(){
+  if(me?.role!=='admin') return toast('Somente o ADMIN pode lançar premiações manuais');
+  const cs=(usersCache||[]).filter(u=>u.role==='consultant');
+  $('manualPrizeConsultant').innerHTML='<option value="">Selecione</option>'+cs.map(u=>'<option value="'+u.id+'">'+esc(u.name)+'</option>').join('');
+  $('manualPrizeType').value='extra';$('manualPrizeAmount').value='';$('manualPrizeReason').value='';
+  $('manualPrizeDate').value=new Date().toISOString().slice(0,10);updateManualPrizeLabel();$('manualPrizeModal').classList.remove('hidden');
+}
+function updateManualPrizeLabel(){
+  const cut=$('manualPrizeType').value==='cut';
+  $('manualPrizeAmountLabel').textContent=cut?'Valor a cortar':'Valor da premiação extra';
+  $('manualPrizeHelp').textContent=cut?'O valor será descontado da premiação da consultora e aparecerá riscado no histórico.':'O valor será somado à premiação da consultora como prêmio manual extra.';
+}
+async function saveManualPrize(){
+  try{
+    const consultant_id=Number($('manualPrizeConsultant').value||0),amount=Number($('manualPrizeAmount').value||0),adjustment_type=$('manualPrizeType').value,adjustment_date=$('manualPrizeDate').value,reason=$('manualPrizeReason').value.trim();
+    if(!consultant_id||!amount||!adjustment_date||!reason)return toast('Preencha consultor, valor, data e motivo');
+    await api('/api/prize-adjustments',{method:'POST',body:JSON.stringify({consultant_id,amount,adjustment_type,adjustment_date,reason})});
+    closeModal('manualPrizeModal');toast(adjustment_type==='cut'?'Corte de premiação lançado!':'Premiação extra lançada!');await loadPrizes();
+  }catch(e){toast(e.message)}
+}
 async function loadPrizes(){
   try{
     const m=$('month').value||monthNow();const d=await api('/api/prizes?month='+encodeURIComponent(m));
@@ -407,14 +435,14 @@ async function loadPrizes(){
       const total=consultantTotal+supervisorTotal;
       $('prizeHeadAdmin').innerHTML='<th>Consultor</th><th>Faturamento bruto</th><th>Prêmios</th><th>Total</th><th>Detalhes</th>';
       $('prizeTotal').textContent=money(total);$('prizeCount').textContent=d.consultants.reduce((a,c)=>a+c.awards.length,0);$('prizeRevenue').textContent=money(d.consultants.reduce((a,c)=>a+Number(c.gross_revenue||0),0));$('adminPrizeHeader').classList.remove('hidden');if($('adminPrizeTotal'))$('adminPrizeTotal').textContent=money(total);if($('adminPrizeCount'))$('adminPrizeCount').textContent=d.consultants.reduce((a,c)=>a+c.awards.length,0);if($('adminPrizeGross'))$('adminPrizeGross').textContent=money(d.consultants.reduce((a,c)=>a+Number(c.gross_revenue||0),0));
-      $('prizeTable').innerHTML=d.consultants.map(c=>`<tr><td><strong>${esc(c.name)}</strong></td><td>${money(c.gross_revenue||0)}</td><td>${c.awards.length}</td><td><strong>${money(c.total_prize)}</strong></td><td>${c.awards.slice(0,6).map(a=>`<div style="margin-bottom:6px"><span class="prize-pill">${money(a.amount)}</span> ${esc(a.rule_name)}<div class="small-note">${esc(a.reason)} • ${a.date}</div></div>`).join('')||'<span class="muted">Nenhum prêmio no mês</span>'}</td></tr>`).join('')||emptyRow(5);
+      $('prizeTable').innerHTML=d.consultants.map(c=>`<tr><td><strong>${esc(c.name)}</strong></td><td>${money(c.gross_revenue||0)}</td><td>${c.awards.length}</td><td><strong>${money(c.total_prize)}</strong></td><td>${c.awards.slice(0,6).map(a=>`<div style="margin-bottom:6px"><span class="prize-pill">${renderPrizeAmount(a)}</span> ${esc(renderPrizeTitle(a))}<div class="small-note">${esc(a.reason)} • ${a.date}</div></div>`).join('')||'<span class="muted">Nenhum prêmio no mês</span>'}</td></tr>`).join('')||emptyRow(5);
       $('myPrizeHistory').innerHTML=`<div class="muted">Consultoras: ${money(consultantTotal)} • Supervisor: ${money(supervisorTotal)} • <strong>Total geral: ${money(total)}</strong></div>`;await loadLosses();if(me.role==='ranking_admin')await loadLimitedSupervisor();
     }else{
       $('prizeTotal').textContent=money(mine?.total_prize||0);$('prizeCount').textContent=mine?.awards.length||0;$('prizeRevenue').textContent=money(mine?.gross_revenue||0);$('adminPrizeHeader').classList.add('hidden');
       $('prizeHeadAdmin').innerHTML='<th>Data</th><th>Premiação</th><th>Valor</th>';
-      $('prizeTable').innerHTML=mine?.awards.map(a=>`<tr><td>${a.date}</td><td><strong>${esc(a.rule_name)}</strong><div class="small-note">${esc(a.reason)}</div></td><td>${money(a.amount)}</td></tr>`).join('')||'<tr><td colspan="3" class="muted">Nenhuma premiação neste mês.</td></tr>';
+      $('prizeTable').innerHTML=mine?.awards.map(a=>`<tr><td>${a.date}</td><td><strong>${esc(renderPrizeTitle(a))}</strong><div class="small-note">${esc(a.reason)}</div></td><td>${renderPrizeAmount(a)}</td></tr>`).join('')||'<tr><td colspan="3" class="muted">Nenhuma premiação neste mês.</td></tr>';
       $('consultantPrizeTeam').classList.remove('hidden');$('consultantPrizeTeamTable').innerHTML=d.consultants.map(c=>`<tr><td><strong>${esc(c.name)}</strong></td><td>${c.awards.length}</td><td><strong>${money(c.total_prize)}</strong></td></tr>`).join('')||emptyRow(3);
-      $('myPrizeHistory').innerHTML=mine?.awards.map(a=>`<div class="sale"><div><strong>${esc(a.rule_name)}</strong><span class="muted meta">${a.date} • ${esc(a.reason)}</span></div><span class="amount">${money(a.amount)}</span></div>`).join('')||'<div class="muted">Nenhuma premiação.</div>';
+      $('myPrizeHistory').innerHTML=mine?.awards.map(a=>`<div class="sale"><div><strong>${esc(renderPrizeTitle(a))}</strong><span class="muted meta">${a.date} • ${esc(a.reason)}</span></div><span class="amount">${renderPrizeAmount(a)}</span></div>`).join('')||'<div class="muted">Nenhuma premiação.</div>';
       $('myPrizeLosses').innerHTML='<div class="muted">Os motivos de perda são administrados pelo supervisor.</div>';
       const rules=await api('/api/prize-rules');$('consultantPrizeRules').classList.remove('hidden');$('consultantPrizeRulesTable').innerHTML=rules.filter(r=>r.active).map(r=>{const cond=r.category==='sale'?`${money(r.min_amount||0)}${r.max_installments?` • ${r.min_installments&&r.min_installments!==r.max_installments?r.min_installments+' a '+r.max_installments:r.max_installments}x`:''}${r.payment_type?` • ${r.payment_type==='avista'?'À vista':'Parcelado'}`:''}`:r.category==='daily'?`Acumulado diário a partir de ${money(r.min_amount||0)} (mín. 2 vendas)`:r.category==='weekly'?`Acumulado semanal a partir de ${money(r.min_amount||0)} (mín. 2 vendas)`:r.category==='daily_rank'?'Meta da equipe: R$ 7.500 no dia':r.category==='all_days'?'Venda em todos os dias úteis da semana':money(r.min_amount||0);return `<tr><td><strong>${esc(r.name)}</strong></td><td>${esc(cond)}</td><td><strong>${money(r.prize_amount)}</strong></td></tr>`}).join('')||emptyRow(3);
     }
