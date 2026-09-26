@@ -1,4 +1,6 @@
-const IS_CF_WORKER = process.env.CF_WORKER === '1';
+const CF_ENV = globalThis.__CF_ENV || {};
+const envVar = (name) => CF_ENV[name] ?? process.env[name];
+const IS_CF_WORKER = envVar('CF_WORKER') === '1';
 if (!IS_CF_WORKER) require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -7,8 +9,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'TROQUE-ESTE-SEGREDO-EM-PRODUCAO';
+const PORT = envVar('PORT') || 3000;
+const JWT_SECRET = envVar('JWT_SECRET') || 'TROQUE-ESTE-SEGREDO-EM-PRODUCAO';
 
 // Taxas da planilha "Taxa Maquininha ATUALIZADA".
 // Regra do sistema: à vista e 1x = 0%; 2x a 12x usam a taxa da plataforma.
@@ -65,13 +67,15 @@ function effectivePrizePayment(s){
 }
 
 
-if (!process.env.DATABASE_URL) {
+const DATABASE_URL = envVar('DATABASE_URL');
+
+if (!DATABASE_URL) {
   console.error('DATABASE_URL não configurada.');
   process.exit(1);
 }
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: DATABASE_URL,
   ssl: { rejectUnauthorized: false },
   max: 5,
 });
@@ -254,14 +258,14 @@ async function init(){
   for(const name of ['Daniel','Tom','Remalho']){
     await pool.query('INSERT INTO lead_sources (name,active) VALUES ($1,1) ON CONFLICT (name) DO NOTHING',[name]);
   }
-  const email=(process.env.ADMIN_EMAIL || 'admin@aps.local').trim().toLowerCase();
-  const password=process.env.ADMIN_PASSWORD || '123456';
+  const email=(envVar('ADMIN_EMAIL') || 'admin@aps.local').trim().toLowerCase();
+  const password=envVar('ADMIN_PASSWORD') || '123456';
   const existing=(await pool.query("SELECT * FROM users WHERE role='admin' ORDER BY id LIMIT 1")).rows[0];
   if(!existing){
     const hash=await bcrypt.hash(password,10);
     await pool.query('INSERT INTO users (name,email,password_hash,role,goal,active) VALUES ($1,$2,$3,$4,$5,1)',['Administrador',email,hash,'admin',0]);
     console.log(`Admin inicial criado: ${email}`);
-  } else if(process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD){
+  } else if(envVar('ADMIN_EMAIL') && envVar('ADMIN_PASSWORD')){
     // Se o Render tiver ADMIN_EMAIL/ADMIN_PASSWORD configurados, sincroniza o admin existente.
     // Isso corrige bancos antigos onde a senha/e-mail foram criados antes das variáveis atuais.
     const hash=await bcrypt.hash(password,10);
@@ -357,7 +361,7 @@ app.get('/api/ranking',auth,async(req,res)=>{
 
 app.get('/api/team-rankings',auth,async(req,res)=>{
   if(req.user.role!=='admin') return res.status(403).json({error:'Acesso restrito'});
-  const start=validDate(req.query.from)?String(req.query.from):(process.env.TEAM_RANK_START_DATE||'2026-09-21');
+  const start=validDate(req.query.from)?String(req.query.from):(envVar('TEAM_RANK_START_DATE')||'2026-09-21');
   const teams={};
   for(const team of ['A','B']){
     // Equipe A mantém o histórico normal; Equipe B começa no ranking separado a partir da data configurada.
@@ -573,8 +577,8 @@ function addDaysISO(date,days){const d=new Date(date.getTime());d.setUTCDate(d.g
 function weekStart(date){const d=dateOnly(date);const day=d.getUTCDay();const diff=day===0?-6:1-day;return addDaysISO(d,diff)}
 async function prizeData(month, consultantId=null){
   const rules=await dbAll('SELECT * FROM prize_rules WHERE active=1 ORDER BY category,min_amount DESC,id');
-  const prizeStartDate=String(process.env.PRIZE_START_DATE||'2026-09-21');
-  const teamBSalesStart=String(process.env.TEAM_B_PRIZE_START_DATE||'2026-09-21');
+  const prizeStartDate=String(envVar('PRIZE_START_DATE')||'2026-09-21');
+  const teamBSalesStart=String(envVar('TEAM_B_PRIZE_START_DATE')||'2026-09-21');
   // Equipe A mantém as premiações normais, inclusive sobre vendas anteriores.
   // Equipe B só recebe premiação sobre vendas feitas a partir da data configurada.
   const sales=await dbAll(`SELECT s.*,u.name consultant_name,u.team FROM sales s JOIN users u ON u.id=s.consultant_id
@@ -687,7 +691,7 @@ app.get('/api/supervisor-prizes',auth,rankingAdminOrAdmin,async(req,res)=>{
   const month=validMonth(req.query.month);
   const cfg=await dbAll('SELECT * FROM supervisor_prize_settings ORDER BY id');
   const by=Object.fromEntries(cfg.map(x=>[x.name,{value:Number(x.value),active:!!x.active}]));
-  const allTeamsStart=String(process.env.SUPERVISOR_ALL_TEAMS_START_DATE||'2026-09-20');
+  const allTeamsStart=String(envVar('SUPERVISOR_ALL_TEAMS_START_DATE')||'2026-09-20');
   // Regra do supervisor: antes da data de virada, somente a Equipe A conta.
   // A partir da data de virada, Equipes A + B contam juntas. Vendas antigas da B não entram.
   const rows=await dbAll(`
