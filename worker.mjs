@@ -1,6 +1,4 @@
 import { httpServerHandler } from "cloudflare:node";
-import { Client } from "pg";
-import bcrypt from "bcryptjs";
 
 let runtimeState = globalThis.__APS_RANKING_RUNTIME || {
   loaded: false,
@@ -47,6 +45,8 @@ async function loginDirect(request, workerEnv) {
     return Response.json({ error: "Banco de dados não conectado" }, { status: 500 });
   }
 
+  const { Client } = await import("pg");
+  const { default: bcrypt } = await import("bcryptjs");
   const client = new Client({ connectionString });
   try {
     await client.connect();
@@ -166,6 +166,22 @@ export default {
 
     if (!url.pathname.startsWith("/api/")) {
       return workerEnv.ASSETS.fetch(request);
+    }
+
+    if (url.pathname === "/api/health" && request.method === "GET") {
+      const connectionString = workerEnv.HYPERDRIVE?.connectionString;
+      if (!connectionString) return Response.json({ ok: false, error: "HYPERDRIVE não configurado" }, { status: 500 });
+      try {
+        const { Client } = await import("pg");
+        const client = new Client({ connectionString });
+        await client.connect();
+        const result = await client.query("SELECT 1 AS ok");
+        await client.end().catch(() => {});
+        return Response.json({ ok: true, database: result.rows[0]?.ok === 1 });
+      } catch (error) {
+        console.error("Healthcheck Hyperdrive:", error);
+        return Response.json({ ok: false, error: String(error?.message || error) }, { status: 500 });
+      }
     }
 
     if (url.pathname === "/api/login" && request.method === "POST") {
