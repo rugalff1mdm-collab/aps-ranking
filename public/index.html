@@ -228,7 +228,7 @@ html,body{width:100%;max-width:100%;margin:0;overflow:hidden!important}
 
 <div id="leadModal" class="modal hidden"><div class="modal-card"><div class="modal-head"><h3>Registrar leads</h3><button class="btn ghost" onclick="closeModal('leadModal')">✕</button></div><div class="form-grid"><div><label>Data</label><input id="leadDate" type="date"></div><div><label>Quantidade</label><input id="leadQty" type="number" min="1" step="1" placeholder="50"></div><div><label>Consultor</label><select id="leadConsultant"></select></div><div><label>Origem</label><select id="leadSource"></select></div><div class="full"><label>Estado</label><select id="leadState"></select></div></div><div class="actions"><button class="btn ghost" onclick="closeModal('leadModal')">Cancelar</button><button class="btn primary" onclick="saveLead()">Registrar leads</button></div></div></div>
 
-<div id="manualPrizeModal" class="modal hidden"><div class="modal-card"><div class="modal-head"><h3>🎁 Lançamento manual de premiação</h3><button class="btn ghost" onclick="closeModal('manualPrizeModal')">✕</button></div><div class="form-grid"><div><label>Consultor</label><select id="manualPrizeConsultant"></select></div><div><label>Tipo</label><select id="manualPrizeType" onchange="updateManualPrizeLabel()"><option value="extra">Premiação extra</option><option value="cut">Corte de premiação</option></select></div><div><label id="manualPrizeAmountLabel">Valor da premiação extra</label><input id="manualPrizeAmount" type="number" min="0.01" step="0.01" placeholder="50,00"></div><div><label>Data</label><input id="manualPrizeDate" type="date"></div><div class="full"><label>Motivo / observação</label><input id="manualPrizeReason" maxlength="250" placeholder="Ex.: prêmio especial, ajuste, desconto por ocorrência..."></div></div><div class="small-note" id="manualPrizeHelp">Premiação extra soma ao total da consultora.</div><div class="actions"><button class="btn ghost" onclick="closeModal('manualPrizeModal')">Cancelar</button><button class="btn primary" onclick="saveManualPrize()">Salvar lançamento</button></div></div></div>
+<div id="manualPrizeModal" class="modal hidden"><div class="modal-card"><div class="modal-head"><h3>🎁 Lançamento manual de premiação</h3><button class="btn ghost" onclick="closeModal('manualPrizeModal')">✕</button></div><div class="form-grid"><div><label>Consultor</label><select id="manualPrizeConsultant"></select></div><div><label>Tipo</label><select id="manualPrizeType" onchange="updateManualPrizeLabel()"><option value="extra">Premiação extra</option><option value="cut">Corte de premiação</option></select></div><div><label id="manualPrizeAmountLabel">Valor da premiação extra</label><input id="manualPrizeAmount" type="number" min="0.01" step="0.01" placeholder="50,00"></div><div><label>Data</label><input id="manualPrizeDate" type="date" onchange="loadManualPrizeTargets()"></div><div id="manualPrizeTargetWrap" class="full hidden"><label>Premiação que será cortada</label><select id="manualPrizeTarget"></select></div><div class="full"><label>Motivo / observação</label><input id="manualPrizeReason" maxlength="250" placeholder="Ex.: prêmio especial, ajuste, desconto por ocorrência..."></div></div><div class="small-note" id="manualPrizeHelp">Premiação extra soma ao total da consultora.</div><div class="actions"><button class="btn ghost" onclick="closeModal('manualPrizeModal')">Cancelar</button><button class="btn primary" onclick="saveManualPrize()">Salvar lançamento</button></div></div></div>
 <div id="bigRanking" class="big-ranking hidden"><div class="big-head"><div><div class="eyebrow" style="color:#b7c7e7">APS SOLUÇÕES</div><h2>RANKING DE VENDAS</h2><div style="opacity:.72" id="bigSubtitle">Ranking por faturamento</div></div><button class="btn big-close" onclick="closeBigRanking()">✕ Fechar</button></div><div id="podium" class="podium"></div><div class="rest-ranking"><div class="rest-title">Demais posições</div><div class="muted" style="margin-bottom:8px">Ranking completo abaixo do pódio</div><div id="bigRest"></div></div></div>
 <div id="toast" class="toast"></div>
 
@@ -400,29 +400,52 @@ function toggleInstallments(typeId,installId){const p=$(typeId).value;$(installI
 function money2(v){return money(v)}
 function renderPrizeAmount(a){
   const n=Number(a.amount||0);
+  if(a.cut){
+    const original=Number(a.original_amount||0), remaining=Number(a.amount||0);
+    return '<span style="text-decoration:line-through">'+money(original)+'</span> <strong style="font-size:12px">Corte: − '+money(Number(a.cut_amount||0))+'</strong>'+((remaining>0)?' <strong>'+money(remaining)+'</strong>':'');
+  }
   if(a.manual&&a.adjustment_type==='cut') return '<span style="text-decoration:line-through">'+money(Math.abs(n))+'</span> <strong style="font-size:12px">− '+money(Math.abs(n))+'</strong>';
   if(a.manual&&a.adjustment_type==='extra') return '<strong>+ '+money(Math.abs(n))+'</strong>';
   return money(n);
 }
-function renderPrizeTitle(a){return a.manual?(a.adjustment_type==='cut'?'Corte manual':'Premiação manual extra'):a.rule_name}
+function renderPrizeTitle(a){return a.cut?(a.rule_name+' — CORTE'):a.manual?(a.adjustment_type==='cut'?'Corte manual':'Premiação manual extra'):a.rule_name}
 function openManualPrize(){
   if(me?.role!=='admin') return toast('Somente o ADMIN pode lançar premiações manuais');
   const cs=(usersCache||[]).filter(u=>u.role==='consultant');
   $('manualPrizeConsultant').innerHTML='<option value="">Selecione</option>'+cs.map(u=>'<option value="'+u.id+'">'+esc(u.name)+'</option>').join('');
   $('manualPrizeType').value='extra';$('manualPrizeAmount').value='';$('manualPrizeReason').value='';
-  $('manualPrizeDate').value=new Date().toISOString().slice(0,10);updateManualPrizeLabel();$('manualPrizeModal').classList.remove('hidden');
+  $('manualPrizeDate').value=new Date().toISOString().slice(0,10);
+  $('manualPrizeTargetWrap').classList.add('hidden');$('manualPrizeTarget').innerHTML='<option value="">Selecione a premiação</option>';
+  updateManualPrizeLabel();$('manualPrizeModal').classList.remove('hidden');
+}
+async function loadManualPrizeTargets(){
+  if($('manualPrizeType').value!=='cut') return;
+  const consultantId=Number($('manualPrizeConsultant').value||0);
+  const date=$('manualPrizeDate').value;
+  if(!consultantId||!date){$('manualPrizeTargetWrap').classList.add('hidden');return;}
+  try{
+    const month=date.slice(0,7),d=await api('/api/prizes?month='+encodeURIComponent(month));
+    const c=d.consultants.find(x=>Number(x.id)===consultantId);
+    const awards=(c?.awards||[]).filter(a=>!a.manual&&!a.cut&&a.award_key&&String(a.date)===date);
+    $('manualPrizeTarget').innerHTML='<option value="">Selecione a premiação</option>'+awards.map(a=>'<option value="'+esc(a.award_key)+'">'+esc(a.rule_name)+' — '+money(a.amount)+'</option>').join('');
+    $('manualPrizeTargetWrap').classList.toggle('hidden',awards.length===0);
+    if(!awards.length) toast('Nenhuma premiação calculada nessa data para esta consultora.');
+  }catch(e){toast(e.message)}
 }
 function updateManualPrizeLabel(){
   const cut=$('manualPrizeType').value==='cut';
   $('manualPrizeAmountLabel').textContent=cut?'Valor a cortar':'Valor da premiação extra';
-  $('manualPrizeHelp').textContent=cut?'O valor será descontado da premiação da consultora e aparecerá riscado no histórico.':'O valor será somado à premiação da consultora como prêmio manual extra.';
+  $('manualPrizeHelp').textContent=cut?'Selecione a premiação exata. O corte ficará riscado nessa mesma linha e será descontado do total.':'O valor será somado à premiação da consultora como prêmio manual extra.';
+  $('manualPrizeTargetWrap').classList.toggle('hidden',!cut);
+  if(cut) loadManualPrizeTargets();
 }
 async function saveManualPrize(){
   try{
-    const consultant_id=Number($('manualPrizeConsultant').value||0),amount=Number($('manualPrizeAmount').value||0),adjustment_type=$('manualPrizeType').value,adjustment_date=$('manualPrizeDate').value,reason=$('manualPrizeReason').value.trim();
+    const consultant_id=Number($('manualPrizeConsultant').value||0),amount=Number($('manualPrizeAmount').value||0),adjustment_type=$('manualPrizeType').value,adjustment_date=$('manualPrizeDate').value,reason=$('manualPrizeReason').value.trim(),target_award_key=String($('manualPrizeTarget').value||'');
     if(!consultant_id||!amount||!adjustment_date||!reason)return toast('Preencha consultor, valor, data e motivo');
-    await api('/api/prize-adjustments',{method:'POST',body:JSON.stringify({consultant_id,amount,adjustment_type,adjustment_date,reason})});
-    closeModal('manualPrizeModal');toast(adjustment_type==='cut'?'Corte de premiação lançado!':'Premiação extra lançada!');await loadPrizes();
+    if(adjustment_type==='cut'&&!target_award_key)return toast('Selecione a premiação que será cortada');
+    await api('/api/prize-adjustments',{method:'POST',body:JSON.stringify({consultant_id,amount,adjustment_type,adjustment_date,reason,target_award_key})});
+    closeModal('manualPrizeModal');toast(adjustment_type==='cut'?'Corte aplicado na premiação!':'Premiação extra lançada!');await loadPrizes();
   }catch(e){toast(e.message)}
 }
 async function loadPrizes(){
