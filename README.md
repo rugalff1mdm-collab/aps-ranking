@@ -142,3 +142,5 @@ Esta versão usa PostgreSQL via `DATABASE_URL`. O script `migrate-sqlite-to-post
 - Regras de perda de premiação ficam registradas por mês.
 - Vendas antigas sem forma de pagamento não são classificadas automaticamente como à vista ou parceladas, evitando premiação indevida; elas continuam válidas para metas e acumulados.
 - Configuração inicial do supervisor: meta diária R$ 28.600, prêmio diário R$ 50; meta semanal R$ 5.715, prêmio semanal R$ 100. Os valores podem ser alterados no sistema.
+
+<!-- deploy: 2026-09-26 -->
