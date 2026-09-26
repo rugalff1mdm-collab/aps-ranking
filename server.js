@@ -1,4 +1,5 @@
-require('dotenv').config();
+const IS_CF_WORKER = process.env.CF_WORKER === '1';
+if (!IS_CF_WORKER) require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const { Pool } = require('pg');
@@ -100,9 +101,11 @@ const dbRun = async (sql, params=[]) => {
 };
 
 app.use(express.json({limit:'4mb'}));
-app.use((req,res,next)=>{if(req.path==='/'||req.path.endsWith('.html')||req.path.startsWith('/api/'))res.setHeader('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');next()});
-app.get('/',(req,res)=>res.sendFile(path.join(__dirname,'public','index.html'),{headers:{'Cache-Control':'no-store, no-cache, must-revalidate, proxy-revalidate','Pragma':'no-cache','Expires':'0'}}));
-app.use(express.static(path.join(__dirname,'public'),{setHeaders:(res,filePath)=>{if(filePath.endsWith('.html')){res.setHeader('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');res.setHeader('Pragma','no-cache');res.setHeader('Expires','0')}}}));
+if (!IS_CF_WORKER) {
+  app.use((req,res,next)=>{if(req.path==='/'||req.path.endsWith('.html')||req.path.startsWith('/api/'))res.setHeader('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');next()});
+  app.get('/',(req,res)=>res.sendFile(path.join(__dirname,'public','index.html'),{headers:{'Cache-Control':'no-store, no-cache, must-revalidate, proxy-revalidate','Pragma':'no-cache','Expires':'0'}}));
+  app.use(express.static(path.join(__dirname,'public'),{setHeaders:(res,filePath)=>{if(filePath.endsWith('.html')){res.setHeader('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');res.setHeader('Pragma','no-cache');res.setHeader('Expires','0')}}}));
+}
 
 async function init(){
   await pool.query(`CREATE TABLE IF NOT EXISTS users (
@@ -711,4 +714,8 @@ app.get('/api/prize-losses',auth,rankingAdminOrAdmin,async(req,res)=>{const mont
 app.post('/api/prize-losses',auth,adminOnly,async(req,res)=>{const b=req.body||{};if(!b.consultant_id||!b.reason||!validDate(b.loss_date))return res.status(400).json({error:'Consultor, data e motivo são obrigatórios'});const r=await dbRun('INSERT INTO prize_losses(consultant_id,rule_id,period_month,loss_date,reason,notes) VALUES(?,?,?,?,?,?)',[Number(b.consultant_id),b.rule_id?Number(b.rule_id):null,String(b.period_month||b.loss_date.slice(0,7)),b.loss_date,String(b.reason).trim(),b.notes||null]);res.json({id:r.lastID})});
 app.delete('/api/prize-losses/:id',auth,adminOnly,async(req,res)=>{await dbRun('DELETE FROM prize_losses WHERE id=?',[req.params.id]);res.json({ok:true})});
 
-init().then(()=>app.listen(PORT,'0.0.0.0',()=>console.log(`APS Ranking rodando em 0.0.0.0:${PORT}`))).catch(err=>{console.error('Falha ao iniciar banco:',err);process.exit(1)});
+module.exports = { app, init };
+
+if (!IS_CF_WORKER) {
+  init().then(()=>app.listen(PORT,'0.0.0.0',()=>console.log(`APS Ranking rodando em 0.0.0.0:${PORT}`))).catch(err=>{console.error('Falha ao iniciar banco:',err);process.exit(1)});
+}
