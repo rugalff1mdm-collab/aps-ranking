@@ -1,7 +1,6 @@
 import { httpServerHandler } from "cloudflare:node";
 import { Client } from "pg";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 
 let runtimeState = globalThis.__APS_RANKING_RUNTIME || {
   loaded: false,
@@ -11,60 +10,78 @@ let runtimeState = globalThis.__APS_RANKING_RUNTIME || {
 };
 globalThis.__APS_RANKING_RUNTIME = runtimeState;
 
+function base64url(value) {
+  const bytes = typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+async function signJwt(payload, secret) {
+  const header = base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const body = base64url(JSON.stringify({ ...payload, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60 }));
+  const data = `${header}.${body}`;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+  return `${data}.${base64url(signature)}`;
+}
+
 async function loginDirect(request, workerEnv) {
+  const body = await request.json();
+  const email = String(body?.email || "").trim().toLowerCase();
+  const password = String(body?.password || "");
+
+  if (!email || !password) {
+    return Response.json({ error: "Informe e-mail e senha" }, { status: 400 });
+  }
+
+  const connectionString = workerEnv.HYPERDRIVE?.connectionString;
+  if (!connectionString) {
+    console.error("Login: Hyperdrive sem connectionString");
+    return Response.json({ error: "Banco de dados não conectado" }, { status: 500 });
+  }
+
+  const client = new Client({ connectionString });
   try {
-    const body = await request.json();
-    const email = String(body?.email || '').trim().toLowerCase();
-    const password = String(body?.password || '');
+    await client.connect();
+    const result = await client.query(
+      "SELECT id, name, email, password_hash, role, goal, photo_data FROM users WHERE email=$1 AND active=1 LIMIT 1",
+      [email]
+    );
+    const user = result.rows[0];
 
-    if (!email || !password) {
-      return Response.json({ error: 'Informe e-mail e senha' }, { status: 400 });
+    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+      return Response.json({ error: "E-mail ou senha inválidos" }, { status: 401 });
     }
 
-    if (!workerEnv.HYPERDRIVE?.connectionString) {
-      throw new Error('HYPERDRIVE não configurado.');
-    }
+    const secret = workerEnv.JWT_SECRET || "TROQUE-ESTE-SEGREDO-EM-PRODUCAO";
+    const token = await signJwt(
+      { id: user.id, name: user.name, email: user.email, role: user.role },
+      secret
+    );
 
-    const client = new Client({
-      connectionString: workerEnv.HYPERDRIVE.connectionString,
+    return Response.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        goal: user.goal,
+        photo_data: user.photo_data || null,
+      },
     });
-
-    try {
-      await client.connect();
-      const result = await client.query(
-        'SELECT * FROM users WHERE email=$1 AND active=1 LIMIT 1',
-        [email]
-      );
-      const user = result.rows[0];
-
-      if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-        return Response.json({ error: 'E-mail ou senha inválidos' }, { status: 401 });
-      }
-
-      const secret = workerEnv.JWT_SECRET || 'TROQUE-ESTE-SEGREDO-EM-PRODUCAO';
-      const token = jwt.sign(
-        { id: user.id, name: user.name, email: user.email, role: user.role },
-        secret,
-        { expiresIn: '7d' }
-      );
-
-      return Response.json({
-        token,
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          goal: user.goal,
-          photo_data: user.photo_data || null,
-        },
-      });
-    } finally {
-      await client.end().catch(() => {});
-    }
   } catch (error) {
-    console.error('Falha no login direto:', error);
-    return Response.json({ error: 'Erro interno ao realizar login' }, { status: 500 });
+    console.error("Falha no login via Hyperdrive:", error);
+    return Response.json({ error: "Erro interno ao realizar login" }, { status: 500 });
+  } finally {
+    await client.end().catch(() => {});
   }
 }
 
@@ -87,13 +104,11 @@ async function getRuntime(workerEnv) {
 
     const { app, init } = await import("./server.js");
     app.listen(3000);
-
     runtimeState.app = app;
     runtimeState.expressHandler = httpServerHandler({ port: 3000 });
     runtimeState.init = init;
     runtimeState.loaded = true;
   }
-
   return runtimeState;
 }
 
@@ -115,8 +130,13 @@ export default {
       return workerEnv.ASSETS.fetch(request);
     }
 
-    if (url.pathname === '/api/login' && request.method === 'POST') {
-      return loginDirect(request, workerEnv);
+    if (url.pathname === "/api/login" && request.method === "POST") {
+      try {
+        return await loginDirect(request, workerEnv);
+      } catch (error) {
+        console.error("Falha inesperada no login:", error);
+        return Response.json({ error: "Erro interno ao realizar login" }, { status: 500 });
+      }
     }
 
     try {
