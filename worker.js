@@ -1,42 +1,51 @@
-import { handleAsNodeRequest } from "cloudflare:node";
+import { env } from "cloudflare:workers";
+import { httpServerHandler } from "cloudflare:node";
 
-let readyPromise = null;
+if (!env.HYPERDRIVE?.connectionString) {
+  throw new Error("HYPERDRIVE não configurado. Vincule uma configuração Hyperdrive como HYPERDRIVE.");
+}
 
-async function ensureServer(env) {
-  if (!readyPromise) {
-    readyPromise = (async () => {
-      // Pass Cloudflare bindings/environment to the existing Express backend
-      // before importing it, because server.js reads its environment at load time.
-      globalThis.__CF_ENV = {
-        ...env,
-        CF_WORKER: "1",
-        DATABASE_URL: env.HYPERDRIVE?.connectionString || env.DATABASE_URL,
-      };
+globalThis.__CF_ENV = {
+  CF_WORKER: "1",
+  DATABASE_URL: env.HYPERDRIVE.connectionString,
+  JWT_SECRET: env.JWT_SECRET,
+  ADMIN_EMAIL: env.ADMIN_EMAIL,
+  ADMIN_PASSWORD: env.ADMIN_PASSWORD,
+  PRIZE_START_DATE: env.PRIZE_START_DATE,
+  TEAM_B_PRIZE_START_DATE: env.TEAM_B_PRIZE_START_DATE,
+  SUPERVISOR_ALL_TEAMS_START_DATE: env.SUPERVISOR_ALL_TEAMS_START_DATE,
+};
 
-      const mod = await import("./server.js");
-      await mod.init();
+const { app, init } = await import("./server.js");
 
-      // In Workers this port is only an internal routing key.
-      if (!mod.app.listening) {
-        mod.app.listen(3000);
-      }
-    })();
+app.listen(3000);
+const expressHandler = httpServerHandler({ port: 3000 });
+
+let initPromise;
+async function ensureDatabase() {
+  if (!initPromise) {
+    initPromise = init().catch((error) => {
+      initPromise = null;
+      throw error;
+    });
   }
-
-  await readyPromise;
+  return initPromise;
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, workerEnv, ctx) {
     const url = new URL(request.url);
 
-    // Static frontend files are served by Cloudflare Assets.
-    // Only API requests need to reach Express.
     if (!url.pathname.startsWith("/api/")) {
-      return env.ASSETS.fetch(request);
+      return workerEnv.ASSETS.fetch(request);
     }
 
-    await ensureServer(env);
-    return handleAsNodeRequest(3000, request);
+    try {
+      await ensureDatabase();
+      return await expressHandler(request, workerEnv, ctx);
+    } catch (error) {
+      console.error("Falha ao inicializar o banco:", error);
+      return new Response("Erro ao inicializar o banco de dados.", { status: 500 });
+    }
   },
 };
