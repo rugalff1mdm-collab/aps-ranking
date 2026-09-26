@@ -402,9 +402,9 @@ function renderPrizeAmount(a){
   const n=Number(a.amount||0);
   if(a.cut){
     const original=Number(a.original_amount||0), remaining=Number(a.amount||0);
-    return '<span style="text-decoration:line-through">'+money(original)+'</span> <strong style="font-size:12px">Corte: − '+money(Number(a.cut_amount||0))+'</strong>'+((remaining>0)?' <strong>'+money(remaining)+'</strong>':'');
+    return '<span style="text-decoration:line-through">'+money(original)+'</span> <strong style="font-size:12px;color:#b42318">Corte: − '+money(Number(a.cut_amount||0))+'</strong>'+((remaining>0)?' <strong>'+money(remaining)+'</strong>':'');
   }
-  if(a.manual&&a.adjustment_type==='cut') return '<span style="text-decoration:line-through">'+money(Math.abs(n))+'</span> <strong style="font-size:12px">− '+money(Math.abs(n))+'</strong>';
+  if(a.manual&&a.adjustment_type==='cut') return '<span style="text-decoration:line-through">'+money(Math.abs(n))+'</span> <strong style="font-size:12px;color:#b42318">− '+money(Math.abs(n))+'</strong>';
   if(a.manual&&a.adjustment_type==='extra') return '<strong>+ '+money(Math.abs(n))+'</strong>';
   return money(n);
 }
