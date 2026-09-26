@@ -414,9 +414,8 @@ function openManualPrize(){
   if(me?.role!=='admin') return toast('Somente o ADMIN pode lançar premiações manuais');
   const cs=(usersCache||[]).filter(u=>u.role==='consultant');
   $('manualPrizeConsultant').innerHTML='<option value="">Selecione</option>'+cs.map(u=>'<option value="'+u.id+'">'+esc(u.name)+'</option>').join('');
-  $('manualPrizeType').value='extra';$('manualPrizeAmount').value='';$('manualPrizeReason').value='';
+  $('manualPrizeType').value='extra';$('manualPrizeAmount').value='';$('manualPrizeAmount').readOnly=false;$('manualPrizeReason').value='';
   $('manualPrizeDate').value=new Date().toISOString().slice(0,10);
-  $('manualPrizeTargetWrap').classList.add('hidden');$('manualPrizeTarget').innerHTML='<option value="">Selecione a premiação</option>';
   updateManualPrizeLabel();$('manualPrizeModal').classList.remove('hidden');
 }
 async function calculateManualPrizeAmount(){
