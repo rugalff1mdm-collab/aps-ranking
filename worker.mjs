@@ -124,7 +124,10 @@ async function loginDirect(request, workerEnv) {
     });
   } catch (error) {
     console.error("Falha no login via Hyperdrive:", error);
-    return Response.json({ error: "Erro interno ao realizar login" }, { status: 500 });
+    return Response.json(
+      { error: `Login: ${String(error?.message || error)}` },
+      { status: 500 }
+    );
   } finally {
     await client.end().catch(() => {});
   }
