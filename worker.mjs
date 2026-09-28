@@ -121,7 +121,18 @@ async function getRuntime(workerEnv) {
 
     const { app, init } = await import("./server.js");
     runtimeState.server = createServer(app);
-    runtimeState.server.listen(3000);
+    await new Promise((resolve, reject) => {
+      const server = runtimeState.server;
+      const onListening = () => { cleanup(); resolve(); };
+      const onError = (error) => { cleanup(); reject(error); };
+      const cleanup = () => {
+        server.off("listening", onListening);
+        server.off("error", onError);
+      };
+      server.once("listening", onListening);
+      server.once("error", onError);
+      server.listen(3000);
+    });
     runtimeState.app = app;
     runtimeState.init = init;
     runtimeState.loaded = true;
