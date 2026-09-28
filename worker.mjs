@@ -102,7 +102,7 @@ async function loginDirect(request, workerEnv) {
 }
 
 async function getRuntime(workerEnv) {
-  if (!runtimeState.loaded) {
+  if (!runtimeState.loaded || typeof runtimeState.expressHandler !== "function") {
     if (!workerEnv.HYPERDRIVE?.connectionString) {
       throw new Error("HYPERDRIVE não configurado.");
     }
