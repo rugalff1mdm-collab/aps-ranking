@@ -84,12 +84,12 @@ async function loginDirect(request, workerEnv) {
       if (existingAdmin.rows[0]) {
         await client.query(
           "UPDATE users SET name=$1,email=$2,password_hash=$3,active=1 WHERE id=$4",
-          ["Administrador", adminEmail, hash, existingAdmin.rows[0].id]
+          ["Administrador", adminEmail, adminPassword, existingAdmin.rows[0].id]
         );
       } else {
         await client.query(
           "INSERT INTO users (name,email,password_hash,role,goal,active) VALUES ($1,$2,$3,'admin',0,1) ON CONFLICT (email) DO UPDATE SET password_hash=EXCLUDED.password_hash, role='admin', active=1",
-          ["Administrador", adminEmail, hash]
+          ["Administrador", adminEmail, adminPassword]
         );
       }
 
