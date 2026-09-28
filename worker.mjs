@@ -9,6 +9,10 @@ let runtimeState = globalThis.__APS_RANKING_RUNTIME || {
 };
 globalThis.__APS_RANKING_RUNTIME = runtimeState;
 // Stable runtime marker.
+const prizeCache = globalThis.__APS_PRIZE_CACHE || new Map();
+const prizeInflight = globalThis.__APS_PRIZE_INFLIGHT || new Map();
+globalThis.__APS_PRIZE_CACHE = prizeCache;
+globalThis.__APS_PRIZE_INFLIGHT = prizeInflight;
 
 function base64url(value) {
   const bytes = typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value);
