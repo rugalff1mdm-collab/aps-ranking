@@ -177,7 +177,11 @@ export default {
       return await state.expressHandler(request, workerEnv, ctx);
     } catch (error) {
       console.error("Falha ao inicializar o banco:", error);
-      return new Response("Erro ao inicializar o banco de dados.", { status: 500 });
+      const message = String(error?.message || error || "Erro desconhecido");
+      return Response.json(
+        { error: "Erro ao inicializar o banco de dados", detail: message.slice(0, 500) },
+        { status: 500 }
+      );
     }
   },
 };
