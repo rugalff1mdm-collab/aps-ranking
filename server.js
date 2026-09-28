@@ -701,8 +701,15 @@ async function prizeData(month, consultantId=null){
 }
 function moneyJs(v){return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(v)||0)}
 app.get('/api/prizes',auth,async(req,res)=>{
-  try{const month=validMonth(req.query.month);const cid=['admin','ranking_admin'].includes(req.user.role)?(Number(req.query.consultant_id||0)||null):req.user.id;res.json(await prizeData(month,cid));}
-  catch(e){console.error('prizes',e);res.status(500).json({error:'Não foi possível calcular as premiações'})}
+  try{
+    const month=validMonth(req.query.month);
+    const cid=['admin','ranking_admin'].includes(req.user.role)?(Number(req.query.consultant_id||0)||null):req.user.id;
+    res.setHeader('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.json(await prizeData(month,cid));
+  }catch(e){
+    console.error('prizes',e);
+    res.status(500).json({error:'Não foi possível calcular as premiações',detail:String(e?.message||e).slice(0,300)});
+  }
 });
 app.post('/api/prize-adjustments',auth,adminOnly,async(req,res)=>{
   try{
