@@ -719,9 +719,10 @@ app.delete('/api/prize-adjustments/:id',auth,adminOnly,async(req,res)=>{
   try{
     const rawId=String(req.params.id||'').trim(),id=Number(rawId.replace(/^manual-/i,''));
     if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Lançamento manual inválido'});
-    const deleted=await dbQuery('DELETE FROM prize_adjustments WHERE id=? RETURNING id',[id]);
-    if(!deleted.rows?.length)return res.status(404).json({error:'Lançamento manual não encontrado'});
-    res.json({ok:true,id:deleted.rows[0].id});
+    const found=await dbGet('SELECT id FROM prize_adjustments WHERE id=?',[id]);
+    if(!found)return res.status(404).json({error:'Lançamento manual não encontrado'});
+    await dbRun('DELETE FROM prize_adjustments WHERE id=?',[id]);
+    res.json({ok:true,id});
   }catch(e){console.error('delete-prize-adjustment',e);res.status(500).json({error:'Não foi possível excluir o lançamento manual'})}
 });
 app.get('/api/prize-rules',auth,async(req,res)=>res.json(await dbAll('SELECT * FROM prize_rules ORDER BY active DESC,category,min_amount,id')));
