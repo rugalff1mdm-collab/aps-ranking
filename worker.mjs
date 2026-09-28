@@ -222,7 +222,7 @@ export default {
       const message = String(error?.message || error || "Erro desconhecido");
       return Response.json(
         { error: "Erro ao inicializar o banco de dados", detail: message.slice(0, 500) },
-        { status: 500 }
+        { status: 503 }
       );
     }
   },
