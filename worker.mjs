@@ -1,9 +1,11 @@
 import { handleAsNodeRequest } from "cloudflare:node";
+import { createServer } from "node:http";
 
 let runtimeState = globalThis.__APS_RANKING_RUNTIME || {
   loaded: false,
   app: null,
   initPromise: null,
+  server: null,
 };
 globalThis.__APS_RANKING_RUNTIME = runtimeState;
 
@@ -118,7 +120,8 @@ async function getRuntime(workerEnv) {
     };
 
     const { app, init } = await import("./server.js");
-    app.listen(3000);
+    runtimeState.server = createServer(app);
+    runtimeState.server.listen(3000);
     runtimeState.app = app;
     runtimeState.init = init;
     runtimeState.loaded = true;
