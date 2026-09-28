@@ -156,10 +156,18 @@ async function ensureDatabase(state) {
         SELECT
           to_regclass('public.users') AS users_table,
           to_regclass('public.sales') AS sales_table,
-          to_regclass('public.prize_rules') AS prize_rules_table
+          to_regclass('public.prize_rules') AS prize_rules_table,
+          EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='team') AS users_team,
+          EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='sales' AND column_name='sale_date') AS sales_sale_date,
+          EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='sales' AND column_name='gross_amount') AS sales_gross_amount,
+          EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='prize_rules' AND column_name='min_installments') AS prize_rules_min_installments
       `);
       const row = check.rows[0] || {};
-      if (row.users_table && row.sales_table && row.prize_rules_table) return;
+      if (
+        row.users_table && row.sales_table && row.prize_rules_table &&
+        row.users_team && row.sales_sale_date && row.sales_gross_amount &&
+        row.prize_rules_min_installments
+      ) return;
     } finally {
       await client.end().catch(() => {});
     }
