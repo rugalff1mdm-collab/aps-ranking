@@ -8,11 +8,6 @@ let runtimeState = globalThis.__APS_RANKING_RUNTIME || {
   server: null,
 };
 globalThis.__APS_RANKING_RUNTIME = runtimeState;
-// Stable runtime marker.
-const prizeCache = globalThis.__APS_PRIZE_CACHE || new Map();
-const prizeInflight = globalThis.__APS_PRIZE_INFLIGHT || new Map();
-globalThis.__APS_PRIZE_CACHE = prizeCache;
-globalThis.__APS_PRIZE_INFLIGHT = prizeInflight;
 
 function base64url(value) {
   const bytes = typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value);
@@ -191,39 +186,6 @@ export default {
     try {
       const state = await getRuntime(workerEnv);
       await ensureDatabase(state);
-
-      if (url.pathname === "/api/prizes" && request.method === "GET") {
-        const key = (request.headers.get("authorization") || "anonymous") + "|" + url.search;
-        const now = Date.now();
-        const cached = prizeCache.get(key);
-        if (cached && cached.expiresAt > now) {
-          return new Response(cached.body, { status: cached.status, headers: cached.headers });
-        }
-
-        let pending = prizeInflight.get(key);
-        if (!pending) {
-          pending = (async () => {
-            const response = await handleAsNodeRequest(3000, request);
-            const body = await response.text();
-            if (response.ok) {
-              prizeCache.set(key, {
-                body,
-                status: response.status,
-                headers: new Headers(response.headers),
-                expiresAt: Date.now() + 2500
-              });
-            }
-            return new Response(body, { status: response.status, headers: response.headers });
-          })();
-          prizeInflight.set(key, pending);
-        }
-
-        try {
-          return await pending;
-        } finally {
-          if (prizeInflight.get(key) === pending) prizeInflight.delete(key);
-        }
-      }
 
       return await handleAsNodeRequest(3000, request);
     } catch (error) {
