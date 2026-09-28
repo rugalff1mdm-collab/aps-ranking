@@ -191,6 +191,40 @@ export default {
     try {
       const state = await getRuntime(workerEnv);
       await ensureDatabase(state);
+
+      if (url.pathname === "/api/prizes" && request.method === "GET") {
+        const key = (request.headers.get("authorization") || "anonymous") + "|" + url.search;
+        const now = Date.now();
+        const cached = prizeCache.get(key);
+        if (cached && cached.expiresAt > now) {
+          return new Response(cached.body, { status: cached.status, headers: cached.headers });
+        }
+
+        let pending = prizeInflight.get(key);
+        if (!pending) {
+          pending = (async () => {
+            const response = await handleAsNodeRequest(3000, request);
+            const body = await response.text();
+            if (response.ok) {
+              prizeCache.set(key, {
+                body,
+                status: response.status,
+                headers: new Headers(response.headers),
+                expiresAt: Date.now() + 2500
+              });
+            }
+            return new Response(body, { status: response.status, headers: response.headers });
+          })();
+          prizeInflight.set(key, pending);
+        }
+
+        try {
+          return await pending;
+        } finally {
+          if (prizeInflight.get(key) === pending) prizeInflight.delete(key);
+        }
+      }
+
       return await handleAsNodeRequest(3000, request);
     } catch (error) {
       console.error("Falha ao inicializar o banco:", error);
