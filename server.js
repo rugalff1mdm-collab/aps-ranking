@@ -92,7 +92,6 @@ async function dbQuery(sql, params=[]) {
     // recommended node-postgres pattern is a fresh Client per Worker request.
     const client = new Client({
       connectionString: DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
     });
     try {
       await client.connect();
