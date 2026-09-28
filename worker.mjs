@@ -141,12 +141,33 @@ async function getRuntime(workerEnv) {
 }
 
 async function ensureDatabase(state) {
-  if (!state.initPromise) {
-    state.initPromise = state.init().catch((error) => {
-      state.initPromise = null;
-      throw error;
-    });
-  }
+  if (state.initPromise) return state.initPromise;
+  state.initPromise = (async () => {
+    // O banco já foi criado e migrado nas publicações anteriores. Não rode
+    // dezenas de CREATE/ALTER/UPDATE a cada novo isolamento do Worker.
+    // Só executa a inicialização completa quando as tabelas-base realmente faltarem.
+    const connectionString = globalThis.__CF_ENV?.DATABASE_URL;
+    if (!connectionString) throw new Error("DATABASE_URL não configurada.");
+    const { Client } = await import("pg");
+    const client = new Client({ connectionString });
+    try {
+      await client.connect();
+      const check = await client.query(`
+        SELECT
+          to_regclass('public.users') AS users_table,
+          to_regclass('public.sales') AS sales_table,
+          to_regclass('public.prize_rules') AS prize_rules_table
+      `);
+      const row = check.rows[0] || {};
+      if (row.users_table && row.sales_table && row.prize_rules_table) return;
+    } finally {
+      await client.end().catch(() => {});
+    }
+    await state.init();
+  })().catch((error) => {
+    state.initPromise = null;
+    throw error;
+  });
   return state.initPromise;
 }
 
