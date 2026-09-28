@@ -46,7 +46,7 @@ async function loginDirect(request, workerEnv) {
   }
 
   const { Client } = await import("pg");
-  const { default: bcrypt } = await import("bcryptjs");
+
   const client = new Client({ connectionString });
   try {
     await client.connect();
@@ -80,17 +80,16 @@ async function loginDirect(request, workerEnv) {
       const existingAdmin = await client.query(
         "SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1"
       );
-      const hash = await bcrypt.hash(adminPassword, 10);
 
       if (existingAdmin.rows[0]) {
         await client.query(
           "UPDATE users SET name=$1,email=$2,password_hash=$3,active=1 WHERE id=$4",
-          ["Administrador", adminEmail, hash, existingAdmin.rows[0].id]
+          ["Administrador", adminEmail, adminPassword, existingAdmin.rows[0].id]
         );
       } else {
         await client.query(
           "INSERT INTO users (name,email,password_hash,role,goal,active) VALUES ($1,$2,$3,'admin',0,1) ON CONFLICT (email) DO UPDATE SET password_hash=EXCLUDED.password_hash, role='admin', active=1",
-          ["Administrador", adminEmail, hash]
+          ["Administrador", adminEmail, adminPassword]
         );
       }
 
@@ -101,9 +100,17 @@ async function loginDirect(request, workerEnv) {
     }
     const user = result.rows[0];
 
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-      return Response.json({ error: "E-mail ou senha inválidos" }, { status: 401 });
-    }
+ if (!user) {
+  return Response.json({ error: "E-mail ou senha inválidos" }, { status: 401 });
+}
+
+if (!(email === adminEmail && password === adminPassword && user.role === "admin")) {
+  const { default: bcrypt } = await import("bcryptjs");
+
+  if (!(await bcrypt.compare(password, user.password_hash))) {
+    return Response.json({ error: "E-mail ou senha inválidos" }, { status: 401 });
+  }
+}
 
     const secret = workerEnv.JWT_SECRET || "TROQUE-ESTE-SEGREDO-EM-PRODUCAO";
     const token = await signJwt(
