@@ -72,25 +72,32 @@ async function loginDirect(request, workerEnv) {
       [email]
     );
 
-    // If this is a fresh PostgreSQL database, create the initial admin using
-    // the same variables used by the full application.
-    if (!result.rows[0]) {
-      const adminEmail = String(workerEnv.ADMIN_EMAIL || "admin@aps.local").trim().toLowerCase();
-      const adminPassword = String(workerEnv.ADMIN_PASSWORD || "123456");
+    // Provision/repair the configured admin whenever the configured credentials are used.
+    // This also repairs an existing admin whose password/email is out of sync.
+    const adminEmail = String(workerEnv.ADMIN_EMAIL || "admin@aps.local").trim().toLowerCase();
+    const adminPassword = String(workerEnv.ADMIN_PASSWORD || "123456");
+    if (email === adminEmail && password === adminPassword) {
       const existingAdmin = await client.query(
         "SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1"
       );
-      if (!existingAdmin.rows[0] && email === adminEmail && password === adminPassword) {
-        const hash = await bcrypt.hash(adminPassword, 10);
+      const hash = await bcrypt.hash(adminPassword, 10);
+
+      if (existingAdmin.rows[0]) {
         await client.query(
-          "INSERT INTO users (name,email,password_hash,role,goal,active) VALUES ($1,$2,$3,'admin',0,1)",
+          "UPDATE users SET name=$1,email=$2,password_hash=$3,active=1 WHERE id=$4",
+          ["Administrador", adminEmail, hash, existingAdmin.rows[0].id]
+        );
+      } else {
+        await client.query(
+          "INSERT INTO users (name,email,password_hash,role,goal,active) VALUES ($1,$2,$3,'admin',0,1) ON CONFLICT (email) DO UPDATE SET password_hash=EXCLUDED.password_hash, role='admin', active=1",
           ["Administrador", adminEmail, hash]
         );
-        result = await client.query(
-          "SELECT id, name, email, password_hash, role, goal, photo_data FROM users WHERE email=$1 AND active=1 LIMIT 1",
-          [email]
-        );
       }
+
+      result = await client.query(
+        "SELECT id, name, email, password_hash, role, goal, photo_data FROM users WHERE email=$1 AND active=1 LIMIT 1",
+        [email]
+      );
     }
     const user = result.rows[0];
 
