@@ -8,6 +8,7 @@ let runtimeState = globalThis.__APS_RANKING_RUNTIME || {
   server: null,
 };
 globalThis.__APS_RANKING_RUNTIME = runtimeState;
+// Stable runtime marker.
 
 function base64url(value) {
   const bytes = typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value);
