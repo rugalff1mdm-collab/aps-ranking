@@ -5,6 +5,7 @@ let runtimeState = globalThis.__APS_RANKING_RUNTIME || {
   loaded: false,
   app: null,
   initPromise: null,
+  runtimePromise: null,
   server: null,
 };
 globalThis.__APS_RANKING_RUNTIME = runtimeState;
@@ -103,7 +104,12 @@ async function loginDirect(request, workerEnv) {
 }
 
 async function getRuntime(workerEnv) {
-  if (!runtimeState.loaded) {
+  // O navegador abre vários endpoints da tela inicial em paralelo. Sem este
+  // lock, duas requisições podem tentar criar o mesmo servidor Node na porta
+  // 3000 ao mesmo tempo e uma delas cai em 503 (EADDRINUSE).
+  if (runtimeState.loaded) return runtimeState;
+  if (runtimeState.runtimePromise) return runtimeState.runtimePromise;
+  runtimeState.runtimePromise = (async () => {
     if (!workerEnv.HYPERDRIVE?.connectionString) {
       throw new Error("HYPERDRIVE não configurado.");
     }
@@ -136,8 +142,12 @@ async function getRuntime(workerEnv) {
     runtimeState.app = app;
     runtimeState.init = init;
     runtimeState.loaded = true;
-  }
-  return runtimeState;
+    return runtimeState;
+  })().catch(error => {
+    runtimeState.runtimePromise = null;
+    throw error;
+  });
+  return runtimeState.runtimePromise;
 }
 
 async function ensureDatabase(state) {
