@@ -370,6 +370,7 @@ app.patch('/api/me',auth,async(req,res)=>{
   }catch(e){if(String(e.message||'').includes('UNIQUE')) return res.status(400).json({error:'Este e-mail já está em uso'});console.error(e);res.status(500).json({error:'Não foi possível atualizar a conta'});}
 });
 
+// Campanha “Tudo Sem Juros”: nas vendas de 28/09/2026 o ranking considera o valor bruto (sem desconto de juros), preservando o líquido nos demais dias.
 app.get('/api/ranking',auth,async(req,res)=>{
   const month=validMonth(req.query.month);
   const team=String(req.query.team||'').trim().toUpperCase();
@@ -378,7 +379,7 @@ app.get('/api/ranking',auth,async(req,res)=>{
   const {where:rawWhere,params}=dateFilterParts({month},'s');
   const where=rawWhere.replace(/s\.date/g,'s.sale_date');
   const teamWhere=team?` AND u.team=?`:''; const finalParams=team?[...params,team]:params;
-  const rows=await dbAll(`SELECT u.id,u.name,u.goal,u.photo_data,u.team,COALESCE(SUM(s.amount),0) revenue,COUNT(s.id) sales_count
+  const rows=await dbAll(`SELECT u.id,u.name,u.goal,u.photo_data,u.team,COALESCE(SUM(CASE WHEN s.sale_date='2026-09-28' THEN COALESCE(s.gross_amount,s.amount) ELSE s.amount END),0) revenue,COUNT(s.id) sales_count
     FROM users u LEFT JOIN sales s ON s.consultant_id=u.id ${where?where.replace(' AND s.',' AND s.'):''}
     WHERE u.role='consultant' AND u.active=1${teamWhere} GROUP BY u.id ORDER BY revenue DESC,sales_count DESC,u.name ASC`,finalParams);
   res.json(rows.map(r=>({...r,revenue:Number(r.revenue||0),sales_count:Number(r.sales_count||0),avg_ticket:r.sales_count?Number(r.revenue)/Number(r.sales_count):0,goal_pct:r.goal?Number(r.revenue)/Number(r.goal)*100:0})));
@@ -393,7 +394,7 @@ app.get('/api/team-rankings',auth,async(req,res)=>{
     const dateFilter = team==='B' ? ' AND s.sale_date>=?' : '';
     const params = team==='B' ? [start,team] : [team];
     const rows=await dbAll(`SELECT u.id,u.name,u.goal,u.photo_data,u.team,
-      COALESCE(SUM(s.amount),0) revenue,COUNT(s.id) sales_count
+      COALESCE(SUM(CASE WHEN s.sale_date='2026-09-28' THEN COALESCE(s.gross_amount,s.amount) ELSE s.amount END),0) revenue,COUNT(s.id) sales_count
       FROM users u
       LEFT JOIN sales s ON s.consultant_id=u.id${dateFilter}
       WHERE u.role='consultant' AND u.active=1 AND u.team=?
