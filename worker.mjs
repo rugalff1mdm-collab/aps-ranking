@@ -226,7 +226,7 @@ export default {
       const state = await getRuntime(workerEnv);
       // O banco já está provisionado. Não execute migrações no caminho das requisições.
       // O healthcheck valida a conexão; a inicialização pesada aqui era a causa dos 503 em cold start.
-      return noStore(await runtimeState.nodeHandler.fetch(request, workerEnv, ctx));
+      // httpServerHandler(server) retorna o próprio fetch handler do Worker; não é um objeto com .fetch().\n      return noStore(await runtimeState.nodeHandler(request, workerEnv, ctx));
     } catch (error) {
       console.error("Falha ao inicializar o banco:", error);
       const message = String(error?.message || error || "Erro desconhecido");
