@@ -11,6 +11,14 @@ let runtimeState = globalThis.__APS_RANKING_RUNTIME || {
 };
 globalThis.__APS_RANKING_RUNTIME = runtimeState;
 
+function noStore(response) {
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  headers.set("Pragma", "no-cache");
+  headers.set("Expires", "0");
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 function base64url(value) {
   const bytes = typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value);
   let binary = "";
@@ -201,23 +209,23 @@ export default {
 
     if (url.pathname === "/api/health" && request.method === "GET") {
       const connectionString = workerEnv.HYPERDRIVE?.connectionString;
-      if (!connectionString) return Response.json({ ok: false, error: "HYPERDRIVE não configurado" }, { status: 500 });
+      if (!connectionString) return noStore(Response.json({ ok: false, error: "HYPERDRIVE não configurado" }, { status: 500 }));
       try {
         const { Client } = await import("pg");
         const client = new Client({ connectionString });
         await client.connect();
         const result = await client.query("SELECT 1 AS ok");
         await client.end().catch(() => {});
-        return Response.json({ ok: true, database: result.rows[0]?.ok === 1 });
+        return noStore(Response.json({ ok: true, database: result.rows[0]?.ok === 1 }));
       } catch (error) {
         console.error("Healthcheck Hyperdrive:", error);
-        return Response.json({ ok: false, error: String(error?.message || error) }, { status: 500 });
+        return noStore(Response.json({ ok: false, error: String(error?.message || error) }, { status: 500 }));
       }
     }
 
     if (url.pathname === "/api/login" && request.method === "POST") {
       try {
-        return await loginDirect(request, workerEnv);
+        return noStore(await loginDirect(request, workerEnv));
       } catch (error) {
         console.error("Falha inesperada no login:", error);
         return Response.json({ error: "Erro interno ao realizar login" }, { status: 500 });
@@ -228,7 +236,7 @@ export default {
       const state = await getRuntime(workerEnv);
       // O banco já está provisionado. Não execute migrações no caminho das requisições.
       // O healthcheck valida a conexão; a inicialização pesada aqui era a causa dos 503 em cold start.
-      return await runtimeState.nodeHandler.fetch(request, workerEnv, ctx);
+      return noStore(await runtimeState.nodeHandler.fetch(request, workerEnv, ctx));
     } catch (error) {
       console.error("Falha ao inicializar o banco:", error);
       const message = String(error?.message || error || "Erro desconhecido");
