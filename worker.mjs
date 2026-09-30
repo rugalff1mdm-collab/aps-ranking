@@ -224,9 +224,15 @@ export default {
 
     try {
       const state = await getRuntime(workerEnv);
-      // O banco de produção já está provisionado. Não execute init/migrações
-      // no caminho de cada requisição, pois isso pode derrubar as APIs em 503.
-      return noStore(await state.nodeHandler.fetch(request, workerEnv, ctx));
+      try {
+        return noStore(await state.nodeHandler.fetch(request, workerEnv, ctx));
+      } catch (error) {
+        console.error("Erro no handler HTTP:", error);
+        return noStore(Response.json({
+          error: "Erro interno da API",
+          detail: String(error?.message || error).slice(0, 500)
+        }, { status: 500 }));
+      }
     } catch (error) {
       console.error("Falha ao inicializar o banco:", error);
       const message = String(error?.message || error || "Erro desconhecido");
