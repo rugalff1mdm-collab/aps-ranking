@@ -224,9 +224,8 @@ export default {
 
     try {
       const state = await getRuntime(workerEnv);
-      // O código Node do servidor não executa init() automaticamente no Worker.
-      // Garante o schema/migrações antes de atender a primeira API, sem apagar dados.
-      await ensureDatabase(state);
+      // O banco de produção já está provisionado. Não execute init/migrações
+      // no caminho de cada requisição, pois isso pode derrubar as APIs em 503.
       return noStore(await state.nodeHandler.fetch(request, workerEnv, ctx));
     } catch (error) {
       console.error("Falha ao inicializar o banco:", error);
