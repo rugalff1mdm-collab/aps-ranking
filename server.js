@@ -371,9 +371,14 @@ app.post('/api/login',async(req,res)=>{
 });
 
 app.get('/api/me',auth,async(req,res)=>{
-  const u=await dbGet('SELECT id,name,email,role,goal,photo_data,team FROM users WHERE id=?',[req.user.id]);
-  if(!u) return res.status(404).json({error:'Usuário não encontrado'});
-  res.json(u);
+  try{
+    const u=await dbGet('SELECT id,name,email,role,goal,photo_data,team FROM users WHERE id=?',[Number(req.user.id)]);
+    if(!u) return res.status(404).json({error:'Usuário não encontrado'});
+    res.json(u);
+  }catch(e){
+    console.error('GET /api/me:',e);
+    res.status(500).json({error:'Não foi possível carregar o usuário',detail:String(e?.message||e).slice(0,300)});
+  }
 });
 app.patch('/api/me',auth,async(req,res)=>{
   try{
