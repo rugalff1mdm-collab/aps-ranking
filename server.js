@@ -400,35 +400,42 @@ function paymentPartsFromSale(s){
   const fee2=Number(s.card_fee_amount_2 || 0);
   const fee3=Number(s.card_fee_amount_3 || 0);
 
-  // Cada venda possui UM valor bruto total. Pagamentos 02/03 só podem
-  // participar se tiverem data própria válida. Registros antigos podem
-  // carregar valores residuais em payment_amount_2/3 sem serem pagamentos
-  // reais; esses valores NÃO podem ser subtraídos do pagamento 01.
+  // A venda possui UM bruto total. O pagamento 01 é sempre o saldo do
+  // bruto depois dos valores informados em 02/03, mesmo que a data de 02/03
+  // esteja ausente. A data decide se 02/03 entra no ranking mensal; ela NÃO
+  // pode fazer o valor de 02/03 desaparecer do cálculo do pagamento 01.
+  const secondaryRaw=[];
   const secondary=[];
   for(let i=2;i<=3;i++){
     const suf='_'+i;
     const amount=Number(s[`payment_amount${suf}`]||0);
     const date=String(s[`payment_date_${i}`]||'');
+    if(amount>0) secondaryRaw.push({number:i,amount,date});
     if(amount>0 && validDate(date)) secondary.push({number:i,amount,date});
   }
-  // Pagamentos 02/03 só entram se couberem dentro do bruto da venda.
-  // Resíduos antigos que igualam/excedem o bruto não são pagamentos reais.
-  const usableSecondary = grossTotal>0
-    ? (secondary.length && secondary.reduce((sum,p)=>sum+p.amount,0) < grossTotal ? secondary : [])
-    : secondary;
+
+  // Só aceitamos valores 02/03 que caibam no bruto. Isso evita resíduos
+  // impossíveis maiores que o total da venda, mas preserva valores sem data
+  // para calcular corretamente o saldo do pagamento 01.
+  const rawSecondaryTotal=secondaryRaw.reduce((sum,p)=>sum+p.amount,0);
+  const usableSecondaryRaw=grossTotal>0 && rawSecondaryTotal < grossTotal
+    ? secondaryRaw
+    : [];
 
   let payment1;
   if(grossTotal>0){
-    const secondaryGross=usableSecondary.reduce((sum,p)=>sum+p.amount,0);
+    const secondaryGross=usableSecondaryRaw.reduce((sum,p)=>sum+p.amount,0);
     payment1=Math.max(0,grossTotal-secondaryGross);
   }else{
-    // Registros antigos sem gross_amount: usa o líquido + taxas, mas somente
-    // desconta pagamentos 02/03 que realmente possuem data.
     payment1=Math.max(0,netTotal+fee1+secondary.reduce((sum,p)=>{
       const fee=p.number===2?fee2:fee3;
       return sum+fee;
     },0)-secondary.reduce((sum,p)=>sum+p.amount,0));
   }
+
+  // Para o ranking, só pagamentos com data válida são eventos de pagamento.
+  // O saldo do pagamento 01 mantém sua própria data.
+  const usableSecondary=secondary;
 
   const all=[{number:1,amount:payment1,date:String(s.payment_date_1||s.sale_date||''),fee:fee1},
     ...usableSecondary.map(p=>({number:p.number,amount:p.amount,date:p.date,fee:p.number===2?fee2:fee3}))];
