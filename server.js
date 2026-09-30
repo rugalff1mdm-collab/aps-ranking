@@ -930,5 +930,16 @@ app.delete('/api/prize-losses/:id',auth,adminOnly,async(req,res)=>{await dbRun('
 module.exports = { app, init };
 
 if (!IS_CF_WORKER) {
-  init().then(()=>app.listen(PORT,'0.0.0.0',()=>console.log(`APS Ranking rodando em 0.0.0.0:${PORT}`))).catch(err=>{console.error('Falha ao iniciar banco:',err);process.exit(1)});
+  init()
+    .then(async()=>{
+      // Recupera automaticamente os dados históricos do aps.db salvo no GitHub.
+      // A migração é idempotente: depois da primeira execução, o banco registra
+      // a origem e as próximas inicializações não duplicam os dados.
+      if (process.env.AUTO_IMPORT_LEGACY !== '0') {
+        const { run: importLegacy } = require('./migrate-github-backup');
+        await importLegacy();
+      }
+    })
+    .then(()=>app.listen(PORT,'0.0.0.0',()=>console.log(`APS Ranking rodando em 0.0.0.0:${PORT}`)))
+    .catch(err=>{console.error('Falha ao iniciar banco/migrar dados:',err);process.exit(1)});
 }
