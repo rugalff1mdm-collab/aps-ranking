@@ -432,7 +432,7 @@ function paymentPartsFromSale(s){
   // impossíveis maiores que o total da venda, mas preserva valores sem data
   // para calcular corretamente o saldo do pagamento 01.
   const rawSecondaryTotal=secondaryRaw.reduce((sum,p)=>sum+p.amount,0);
-  const usableSecondaryRaw=grossTotal>0 && rawSecondaryTotal < grossTotal
+  const usableSecondaryRaw=grossTotal>0 && rawSecondaryTotal <= grossTotal
     ? secondaryRaw
     : [];
 
