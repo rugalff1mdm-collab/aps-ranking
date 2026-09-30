@@ -454,18 +454,36 @@ function saleRankingRevenueForMonth(s,month){
 function saleRankingRevenue(s){
   return paymentPartsFromSale(s).reduce((total,p)=>total+rankingValueForPayment(p),0);
 }
-function buildDailyPaymentTotals(sales){
+// Resumo diário de VENDAS: cada registro da tabela sales entra uma única vez
+// na data da venda. Pagamentos 02/03 continuam sendo usados no ranking mensal
+// pela data efetiva do pagamento, mas não transformam uma venda antiga em
+// "nova venda" na tabela "Vendido por dia".
+function buildDailySaleTotals(sales,month){
   const byDate=new Map();
   for(const s of sales){
-    for(const p of paymentPartsFromSale(s)){
-      const key=p.date;
-      if(!key) continue;
-      const row=byDate.get(key)||{date:key,gross:0,net:0,sold:0,payments:0};
-      row.gross+=p.amount; row.net+=p.net; row.sold+=rankingValueForPayment(p); row.payments++;
-      byDate.set(key,row);
-    }
+    const saleDate=String(s.sale_date||'');
+    if(!validDate(saleDate) || saleDate.slice(0,7)!==String(month)) continue;
+    const parts=paymentPartsFromSale(s);
+    const first=parts.find(p=>p.number===1);
+    const gross=Number(s.gross_amount==null ? s.amount : s.gross_amount)||0;
+    const sold=first ? rankingValueForPayment(first) : 0;
+    const payments=parts.length;
+    const row=byDate.get(saleDate)||{date:saleDate,gross:0,net:0,sold:0,payments:0,sales:0};
+    row.gross+=gross;
+    row.net+=Number(s.amount||0);
+    row.sold+=sold;
+    row.payments+=payments;
+    row.sales+=1;
+    byDate.set(saleDate,row);
   }
-  return [...byDate.values()].sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  return [...byDate.values()].map(r=>({
+    ...r,
+    gross:Number(r.gross.toFixed(2)),
+    net:Number(r.net.toFixed(2)),
+    sold:Number(r.sold.toFixed(2)),
+    payments:Number(r.payments||0),
+    sales:Number(r.sales||0)
+  })).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
 }
 app.get('/api/ranking',auth,async(req,res)=>{
   const month=validMonth(req.query.month);
@@ -549,14 +567,8 @@ app.get('/api/daily-sales',auth,async(req,res)=>{
     const p=[month]; let extra='';
     if(req.user.role==='consultant'){extra=' AND s.consultant_id=?';p.push(req.user.id);}
     else if(consultantId){extra=' AND s.consultant_id=?';p.push(consultantId);}
-    const sales=await dbAll(`SELECT s.* FROM sales s WHERE (
-      substr(s.sale_date,1,7)=?
-      OR substr(COALESCE(s.payment_date_1,''),1,7)=?
-      OR substr(COALESCE(s.payment_date_2,''),1,7)=?
-      OR substr(COALESCE(s.payment_date_3,''),1,7)=?
-    )${extra}`,[month,month,month,month,...p.slice(1)]);
-    const rows=buildDailyPaymentTotals(sales)
-      .filter(r=>String(r.date).slice(0,7)===month);
+    const sales=await dbAll(`SELECT s.* FROM sales s WHERE substr(s.sale_date,1,7)=?${extra}`,[month,...p.slice(1)]);
+    const rows=buildDailySaleTotals(sales,month);
     res.json(rows);
   }catch(e){console.error('daily-sales',e);res.status(500).json({error:'Não foi possível calcular o vendido por dia',detail:String(e?.message||e).slice(0,200)})}
 });
