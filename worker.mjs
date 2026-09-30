@@ -6,6 +6,7 @@ let runtimeState = globalThis.__APS_RANKING_RUNTIME || {
   app: null,
   initPromise: null,
   runtimePromise: null,
+  schemaPromise: null,
   server: null,
   nodeHandler: null,
 };
@@ -110,6 +111,36 @@ async function loginDirect(request, workerEnv) {
     console.error("Falha no login via Hyperdrive:",error);
     return Response.json({error:`Login: ${String(error?.message||error)}`},{status:500});
   }finally{ await client.end().catch(()=>{}); }
+}
+
+async function ensureCriticalSchema(workerEnv) {
+  if (runtimeState.schemaPromise) return runtimeState.schemaPromise;
+  runtimeState.schemaPromise = (async () => {
+    const connectionString = workerEnv.HYPERDRIVE?.connectionString;
+    if (!connectionString) throw new Error("HYPERDRIVE não configurado.");
+    const { Client } = await import("pg");
+    const client = new Client({ connectionString });
+    try {
+      await client.connect();
+      // Essas colunas são usadas por ranking, equipe e premiações.
+      // Fazemos somente a verificação/migração mínima, uma vez por isolamento
+      // do Worker, para não executar ALTER/CREATE em cada requisição.
+      await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS team TEXT NOT NULL DEFAULT 'A'");
+      await client.query("UPDATE users SET team='A' WHERE team IS NULL OR team=''");
+      await client.query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_date_1 TEXT");
+      await client.query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_date_2 TEXT");
+      await client.query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_date_3 TEXT");
+      await client.query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_amount_2 REAL");
+      await client.query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_amount_3 REAL");
+      await client.query("UPDATE sales SET payment_date_1=sale_date WHERE payment_date_1 IS NULL OR payment_date_1=''");
+    } finally {
+      await client.end().catch(() => {});
+    }
+  })().catch(error => {
+    runtimeState.schemaPromise = null;
+    throw error;
+  });
+  return runtimeState.schemaPromise;
 }
 
 async function getRuntime(workerEnv) {
@@ -309,6 +340,7 @@ export default {
     }
 
     try {
+      await ensureCriticalSchema(workerEnv);
       const state = await getRuntime(workerEnv);
       try {
         return noStore(await state.nodeHandler.fetch(request, workerEnv, ctx));
