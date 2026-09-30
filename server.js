@@ -399,9 +399,9 @@ function paymentPartsFromSale(s){
       : Number(s[`card_fee_amount${suf}`]||0);
     const installments=Number(s[`installments${suf}`]||0)||0;
     const noInterest=installments>=1&&installments<=6;
-    const net=noInterest
-      ? Number(amount.toFixed(2))
-      : Number(Math.max(0,amount-fee).toFixed(2));
+    // Regra normal: líquido após a taxa. A campanha "Tudo Sem Juros"
+    // é aplicada somente por data em rankingValueForPayment().
+    const net=Number(Math.max(0,amount-fee).toFixed(2));
     out.push({
       number:i,
       date,
@@ -467,27 +467,44 @@ app.get('/api/ranking',auth,async(req,res)=>{
 
 app.get('/api/team-rankings',auth,async(req,res)=>{
   if(req.user.role!=='admin') return res.status(403).json({error:'Acesso restrito'});
+  const month=validMonth(req.query.month);
   const start=validDate(req.query.from)?String(req.query.from):(envVar('TEAM_RANK_START_DATE')||'2026-09-21');
   const teams={};
   for(const team of ['A','B']){
     const users=await dbAll("SELECT id,name,goal,photo_data,team FROM users WHERE role='consultant' AND active=1 AND team=?",[team]);
     const teamUsers=new Map(users.map(u=>[Number(u.id),{...u,revenue:0,sales_count:0}]));
+
+    // A receita segue exatamente a mesma base do ranking geral:
+    // pagamentos efetivados no mês selecionado. A Equipe B, além disso,
+    // só considera pagamentos efetivados a partir da data de virada.
     const sales=await dbAll(
       `SELECT s.* FROM sales s JOIN users u ON u.id=s.consultant_id
-       WHERE u.role='consultant' AND u.active=1 AND u.team=?${team==='B'?' AND s.sale_date>=?':''}`,
-      team==='B'?[team,start]:[team]
+       WHERE u.role='consultant' AND u.active=1 AND u.team=?
+         AND (
+           substr(s.sale_date,1,7)=?
+           OR substr(COALESCE(s.payment_date_1,''),1,7)=?
+           OR substr(COALESCE(s.payment_date_2,''),1,7)=?
+           OR substr(COALESCE(s.payment_date_3,''),1,7)=?
+         )`,
+      [team,month,month,month,month]
     );
+
     for(const s of sales){
       const row=teamUsers.get(Number(s.consultant_id));
       if(!row) continue;
-      // Equipe A: contabiliza o período inteiro.
-      // Equipe B: contabiliza somente a partir da data de início (21/09).
-      const parts=team==='B'
-        ? paymentPartsFromSale(s).filter(p=>p.date>=start)
-        : paymentPartsFromSale(s);
+      const parts=paymentPartsFromSale(s).filter(p=>{
+        if(String(p.date).slice(0,7)!==month) return false;
+        return team==='B' ? String(p.date)>=start : true;
+      });
       row.revenue+=parts.reduce((total,p)=>total+rankingValueForPayment(p),0);
-      if(String(s.sale_date)>=start) row.sales_count++;
+
+      // "Vendas" continua sendo quantidade de vendas, não quantidade de pagamentos.
+      // A: mês inteiro. B: somente vendas feitas a partir da virada.
+      if(String(s.sale_date).slice(0,7)===month && (team==='A' || String(s.sale_date)>=start)) {
+        row.sales_count++;
+      }
     }
+
     const decorated=[...teamUsers.values()].map(r=>({
       ...r,
       revenue:Number(r.revenue.toFixed(2)),
@@ -497,7 +514,7 @@ app.get('/api/team-rankings',auth,async(req,res)=>{
     })).sort((a,b)=>b.revenue-a.revenue||b.sales_count-a.sales_count||String(a.name).localeCompare(String(b.name)));
     teams[team]={team,rows:decorated,total_revenue:Number(decorated.reduce((a,r)=>a+r.revenue,0).toFixed(2)),total_sales:decorated.reduce((a,r)=>a+r.sales_count,0)};
   }
-  res.json({start,teams});
+  res.json({month,start,teams});
 });
 
 app.get('/api/daily-sales',auth,async(req,res)=>{
@@ -507,8 +524,14 @@ app.get('/api/daily-sales',auth,async(req,res)=>{
     const p=[month]; let extra='';
     if(req.user.role==='consultant'){extra=' AND s.consultant_id=?';p.push(req.user.id);}
     else if(consultantId){extra=' AND s.consultant_id=?';p.push(consultantId);}
-    const sales=await dbAll(`SELECT s.* FROM sales s WHERE substr(s.sale_date,1,7)=?${extra}`,p);
-    const rows=buildDailyPaymentTotals(sales);
+    const sales=await dbAll(`SELECT s.* FROM sales s WHERE (
+      substr(s.sale_date,1,7)=?
+      OR substr(COALESCE(s.payment_date_1,''),1,7)=?
+      OR substr(COALESCE(s.payment_date_2,''),1,7)=?
+      OR substr(COALESCE(s.payment_date_3,''),1,7)=?
+    )${extra}`,[month,month,month,month,...p.slice(1)]);
+    const rows=buildDailyPaymentTotals(sales)
+      .filter(r=>String(r.date).slice(0,7)===month);
     res.json(rows);
   }catch(e){console.error('daily-sales',e);res.status(500).json({error:'Não foi possível calcular o vendido por dia',detail:String(e?.message||e).slice(0,200)})}
 });
