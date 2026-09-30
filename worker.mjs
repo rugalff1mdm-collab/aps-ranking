@@ -227,7 +227,7 @@ export default {
       // O código Node do servidor não executa init() automaticamente no Worker.
       // Garante o schema/migrações antes de atender a primeira API, sem apagar dados.
       await ensureDatabase(state);
-      return noStore(await state.nodeHandler(request, workerEnv, ctx));
+      return noStore(await state.nodeHandler.fetch(request, workerEnv, ctx));
     } catch (error) {
       console.error("Falha ao inicializar o banco:", error);
       const message = String(error?.message || error || "Erro desconhecido");
