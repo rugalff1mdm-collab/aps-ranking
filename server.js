@@ -372,12 +372,21 @@ app.post('/api/login',async(req,res)=>{
 
 app.get('/api/me',auth,async(req,res)=>{
   try{
-    const u=await dbGet('SELECT id,name,email,role,goal,photo_data,team FROM users WHERE id=?',[Number(req.user.id)]);
+    const userId=Number(req.user.id);
+    if(!Number.isInteger(userId)||userId<=0) return res.status(401).json({error:'Sessão inválida'});
+    // Compatibilidade com bancos antigos: a coluna team pode ainda não existir.
+    // Cria somente essa coluna necessária para o perfil, sem apagar ou alterar vendas.
+    try{
+      await dbQuery("ALTER TABLE users ADD COLUMN IF NOT EXISTS team TEXT NOT NULL DEFAULT 'A'");
+    }catch(schemaError){
+      console.error('GET /api/me schema:',schemaError);
+    }
+    const u=await dbGet('SELECT id,name,email,role,goal,photo_data,team FROM users WHERE id=?',[userId]);
     if(!u) return res.status(404).json({error:'Usuário não encontrado'});
-    res.json(u);
+    res.json({...u,team:u.team||'A'});
   }catch(e){
     console.error('GET /api/me:',e);
-    res.status(500).json({error:'Não foi possível carregar o usuário',detail:String(e?.message||e).slice(0,300)});
+    res.status(500).json({error:'Não foi possível carregar o usuário',detail:String(e?.message||e).slice(0,500)});
   }
 });
 app.patch('/api/me',auth,async(req,res)=>{
