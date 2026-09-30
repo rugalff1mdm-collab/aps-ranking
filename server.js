@@ -405,7 +405,13 @@ function paymentPartsFromSale(s){
   return out;
 }
 function rankingValueForPayment(p){
+  // Campanha "Tudo Sem Juros": somente em 28/09 o ranking usa o bruto.
+  // Nos demais dias, 1x-6x já não têm juros da campanha/regra normal;
+  // 7x+ usa o líquido após a taxa da plataforma.
   return p.date==='2026-09-28' ? p.amount : p.net;
+}
+function saleRankingRevenue(s){
+  return paymentPartsFromSale(s).reduce((total,p)=>total+rankingValueForPayment(p),0);
 }
 function buildDailyPaymentTotals(sales){
   const byDate=new Map();
@@ -444,17 +450,27 @@ app.get('/api/team-rankings',auth,async(req,res)=>{
   const start=validDate(req.query.from)?String(req.query.from):(envVar('TEAM_RANK_START_DATE')||'2026-09-21');
   const teams={};
   for(const team of ['A','B']){
-    // Equipe A mantém o histórico normal; Equipe B começa no ranking separado a partir da data configurada.
-    const dateFilter = team==='B' ? ' AND s.sale_date>=?' : '';
-    const params = team==='B' ? [start,team] : [team];
-    const rows=await dbAll(`SELECT u.id,u.name,u.goal,u.photo_data,u.team,
-      COALESCE(SUM(CASE WHEN s.sale_date='2026-09-28' THEN COALESCE(s.gross_amount,s.amount) ELSE s.amount END),0) revenue,COUNT(s.id) sales_count
-      FROM users u
-      LEFT JOIN sales s ON s.consultant_id=u.id${dateFilter}
-      WHERE u.role='consultant' AND u.active=1 AND u.team=?
-      GROUP BY u.id ORDER BY revenue DESC,sales_count DESC,u.name ASC`,params);
-    const decorated=rows.map(r=>({...r,revenue:Number(r.revenue||0),sales_count:Number(r.sales_count||0),avg_ticket:r.sales_count?Number(r.revenue)/Number(r.sales_count):0,goal_pct:r.goal?Number(r.revenue)/Number(r.goal)*100:0}));
-    teams[team]={team,rows:decorated,total_revenue:decorated.reduce((a,r)=>a+r.revenue,0),total_sales:decorated.reduce((a,r)=>a+r.sales_count,0)};
+    const users=await dbAll("SELECT id,name,goal,photo_data,team FROM users WHERE role='consultant' AND active=1 AND team=?",[team]);
+    const teamUsers=new Map(users.map(u=>[Number(u.id),{...u,revenue:0,sales_count:0}]));
+    const sales=await dbAll(
+      `SELECT s.* FROM sales s JOIN users u ON u.id=s.consultant_id
+       WHERE u.role='consultant' AND u.active=1 AND u.team=?${team==='B'?' AND s.sale_date>=?':''}`,
+      team==='B'?[team,start]:[team]
+    );
+    for(const s of sales){
+      const row=teamUsers.get(Number(s.consultant_id));
+      if(!row) continue;
+      row.revenue+=saleRankingRevenue(s);
+      row.sales_count++;
+    }
+    const decorated=[...teamUsers.values()].map(r=>({
+      ...r,
+      revenue:Number(r.revenue.toFixed(2)),
+      sales_count:Number(r.sales_count||0),
+      avg_ticket:r.sales_count?Number(r.revenue)/Number(r.sales_count):0,
+      goal_pct:r.goal?Number(r.revenue)/Number(r.goal)*100:0
+    })).sort((a,b)=>b.revenue-a.revenue||b.sales_count-a.sales_count||String(a.name).localeCompare(String(b.name)));
+    teams[team]={team,rows:decorated,total_revenue:Number(decorated.reduce((a,r)=>a+r.revenue,0).toFixed(2)),total_sales:decorated.reduce((a,r)=>a+r.sales_count,0)};
   }
   res.json({start,teams});
 });
@@ -607,52 +623,97 @@ app.patch('/api/leads/:id',auth,adminOnly,async(req,res)=>{
 });
 
 async function analytics(req){
-  const month=validMonth(req.query.month);const consultantId=Number(req.query.consultant_id||0)||null;const state=normalizeState(req.query.state)||null;const sourceId=Number(req.query.lead_source_id||0)||null;
+  const month=validMonth(req.query.month);
+  const consultantId=Number(req.query.consultant_id||0)||null;
+  const state=normalizeState(req.query.state)||null;
+  const sourceId=Number(req.query.lead_source_id||0)||null;
+
   const salesFilter=dateFilterParts({month,consultantId,state,sourceId},'s');
   const leadFilter=dateFilterParts({month,consultantId,state,sourceId},'l');
   const salesWhere=salesFilter.where.replace(/s\.date/g,'s.sale_date');
   const leadWhere=leadFilter.where.replace(/l\.date/g,'l.lead_date');
   const salesParams=salesFilter.params,leadParams=leadFilter.params;
-  const summary=await dbGet(`SELECT COALESCE(SUM(s.amount),0) revenue,COUNT(s.id) sales_count FROM sales s WHERE 1=1${salesWhere}`,salesParams);
+
+  // O faturamento dos indicadores precisa usar exatamente a mesma regra do ranking.
+  // Antes, analytics somava sales.amount (líquido total), causando divergência com o ranking.
+  const sales=await dbAll(
+    `SELECT s.*,u.name consultant_name,u.goal,u.photo_data,u.team
+     FROM sales s JOIN users u ON u.id=s.consultant_id
+     WHERE 1=1${salesWhere}`,
+    salesParams
+  );
   const leads=await dbGet(`SELECT COALESCE(SUM(l.quantity),0) leads FROM leads l WHERE 1=1${leadWhere}`,leadParams);
-  const goalWhere=consultantId?' AND u.id=?':'';const goalParams=consultantId?[consultantId]:[];const goal=await dbGet(`SELECT COALESCE(SUM(u.goal),0) goal FROM users u WHERE u.role='consultant' AND u.active=1${goalWhere}`,goalParams);
-  const bySource=await dbAll(`WITH source_leads AS (
-      SELECT l.lead_source_id, COALESCE(SUM(l.quantity),0) leads
-      FROM leads l WHERE 1=1${leadWhere}
-      GROUP BY l.lead_source_id
-    ), source_sales AS (
-      SELECT s.lead_source_id, COUNT(s.id) sales, COALESCE(SUM(s.amount),0) revenue
-      FROM sales s WHERE 1=1${salesWhere}
-      GROUP BY s.lead_source_id
-    )
-    SELECT ls.id,ls.name,COALESCE(sl.leads,0) leads,COALESCE(ss.sales,0) sales,COALESCE(ss.revenue,0) revenue
-    FROM lead_sources ls
-    LEFT JOIN source_leads sl ON sl.lead_source_id=ls.id
-    LEFT JOIN source_sales ss ON ss.lead_source_id=ls.id
-    WHERE ls.active=1
-    ORDER BY revenue DESC,sales DESC,ls.name ASC`,[...leadParams,...salesParams]);
-  const byState=await dbAll(`WITH state_leads AS (
-      SELECT l.state, COALESCE(SUM(l.quantity),0) leads
-      FROM leads l WHERE 1=1${leadWhere}
-      GROUP BY l.state
-    ), state_sales AS (
-      SELECT s.state, COUNT(s.id) sales, COALESCE(SUM(s.amount),0) revenue
-      FROM sales s WHERE 1=1${salesWhere}
-      GROUP BY s.state
-    )
-    SELECT COALESCE(sl.state,ss.state) state,COALESCE(sl.leads,0) leads,COALESCE(ss.sales,0) sales,COALESCE(ss.revenue,0) revenue
-    FROM state_leads sl FULL OUTER JOIN state_sales ss ON ss.state=sl.state
-    WHERE COALESCE(sl.state,ss.state) IS NOT NULL AND COALESCE(sl.state,ss.state)<>''
-    ORDER BY revenue DESC,sales DESC,state ASC`,[...leadParams,...salesParams]);
-  const consultants=await dbAll(`SELECT u.id,u.name,u.goal,u.photo_data,
-    (SELECT COALESCE(SUM(l.quantity),0) FROM leads l WHERE l.consultant_id=u.id${leadWhere}) leads,
-    (SELECT COUNT(s.id) FROM sales s WHERE s.consultant_id=u.id${salesWhere}) sales,
-    (SELECT COALESCE(SUM(s.amount),0) FROM sales s WHERE s.consultant_id=u.id${salesWhere}) revenue
-    FROM users u WHERE u.role='consultant' AND u.active=1 ${consultantId?'AND u.id=?':''}
-    ORDER BY revenue DESC,sales DESC,u.name ASC`,[...leadParams,...salesParams,...salesParams,...(consultantId?[consultantId]:[])]);
+  const goalWhere=consultantId?' AND u.id=?':'';
+  const goalParams=consultantId?[consultantId]:[];
+  const goal=await dbGet(`SELECT COALESCE(SUM(u.goal),0) goal FROM users u WHERE u.role='consultant' AND u.active=1${goalWhere}`,goalParams);
+
+  const revenueFor=s=>Number(saleRankingRevenue(s).toFixed(2));
+  const totalRevenue=sales.reduce((a,s)=>a+revenueFor(s),0);
+  const salesCount=sales.length;
+
+  const sourceMap=new Map();
+  const stateMap=new Map();
+  const consultantMap=new Map();
+  for(const s of sales){
+    const revenue=revenueFor(s);
+    const src=sourceMap.get(Number(s.lead_source_id))||{id:s.lead_source_id,name:null,leads:0,sales:0,revenue:0};
+    src.sales++; src.revenue+=revenue; sourceMap.set(Number(s.lead_source_id),src);
+    const st=stateMap.get(String(s.state||''))||{state:String(s.state||''),leads:0,sales:0,revenue:0};
+    st.sales++; st.revenue+=revenue; stateMap.set(String(s.state||''),st);
+    const cid=Number(s.consultant_id);
+    const c=consultantMap.get(cid)||{id:cid,name:s.consultant_name,goal:Number(s.goal||0),photo_data:s.photo_data||null,leads:0,sales:0,revenue:0};
+    c.sales++; c.revenue+=revenue; consultantMap.set(cid,c);
+  }
+
+  const leadRows=await dbAll(
+    `SELECT l.lead_source_id,l.state,l.consultant_id,SUM(l.quantity)::numeric quantity
+     FROM leads l WHERE 1=1${leadWhere}
+     GROUP BY l.lead_source_id,l.state,l.consultant_id`,
+    leadParams
+  );
+  const leadSourceTotals=new Map(), leadStateTotals=new Map(), leadConsultantTotals=new Map();
+  for(const l of leadRows){
+    const q=Number(l.quantity||0), sid=Number(l.lead_source_id), st=String(l.state||''), cid=Number(l.consultant_id);
+    leadSourceTotals.set(sid,(leadSourceTotals.get(sid)||0)+q);
+    leadStateTotals.set(st,(leadStateTotals.get(st)||0)+q);
+    leadConsultantTotals.set(cid,(leadConsultantTotals.get(cid)||0)+q);
+  }
+
+  const leadSources=await dbAll('SELECT id,name FROM lead_sources WHERE active=1 ORDER BY name ASC');
+  const bySource=leadSources.map(ls=>{
+    const row=sourceMap.get(Number(ls.id))||{id:ls.id,name:ls.name,leads:0,sales:0,revenue:0};
+    return {...row,name:ls.name,leads:leadSourceTotals.get(Number(ls.id))||0,revenue:Number(row.revenue.toFixed(2))};
+  }).sort((x,y)=>y.revenue-x.revenue||y.sales-x.sales||String(x.name).localeCompare(String(y.name)));
+
+  const allStates=new Set([...leadStateTotals.keys(),...stateMap.keys()]);
+  const byState=[...allStates].filter(Boolean).map(st=>{
+    const row=stateMap.get(st)||{state:st,leads:0,sales:0,revenue:0};
+    return {...row,state:st,leads:leadStateTotals.get(st)||0,revenue:Number(row.revenue.toFixed(2))};
+  }).sort((x,y)=>y.revenue-x.revenue||y.sales-x.sales||String(x.state).localeCompare(String(y.state)));
+
+  const activeConsultants=await dbAll("SELECT id,name,goal,photo_data FROM users WHERE role='consultant' AND active=1"+(consultantId?' AND id=?':''),consultantId?[consultantId]:[]);
+  const consultants=activeConsultants.map(u=>{
+    const row=consultantMap.get(Number(u.id))||{sales:0,revenue:0};
+    return {id:u.id,name:u.name,goal:Number(u.goal||0),photo_data:u.photo_data||null,leads:leadConsultantTotals.get(Number(u.id))||0,sales:Number(row.sales||0),revenue:Number((row.revenue||0).toFixed(2))};
+  }).sort((x,y)=>y.revenue-x.revenue||y.sales-x.sales||String(x.name).localeCompare(String(y.name)));
+
   const decorate=r=>({...r,leads:Number(r.leads||0),sales:Number(r.sales||0),revenue:Number(r.revenue||0),conversion:Number(r.leads)?Number(r.sales)/Number(r.leads)*100:0,goal:Number(r.goal||0),goal_pct:Number(r.goal)?Number(r.revenue)/Number(r.goal)*100:0});
-  return {month,summary:{revenue:Number(summary.revenue||0),sales:Number(summary.sales_count||0),goal:Number(goal.goal||0),leads:Number(leads.leads||0),conversion:Number(leads.leads)?Number(summary.sales||summary.sales_count||0)/Number(leads.leads)*100:0},bySource:bySource.map(decorate),byState:byState.map(decorate),consultants:consultants.map(decorate)};
+  return {
+    month,
+    summary:{
+      revenue:Number(totalRevenue.toFixed(2)),
+      sales:salesCount,
+      sales_count:salesCount,
+      goal:Number(goal.goal||0),
+      leads:Number(leads.leads||0),
+      conversion:Number(leads.leads)?salesCount/Number(leads.leads)*100:0
+    },
+    bySource:bySource.map(decorate),
+    byState:byState.map(decorate),
+    consultants:consultants.map(decorate)
+  };
 }
+
 app.get('/api/analytics',auth,async(req,res)=>{
   try{
     if(req.user.role!=='admin'){
@@ -680,7 +741,7 @@ async function prizeData(month, consultantId=null){
   const consultants=consultantId?await dbAll("SELECT id,name,goal,photo_data FROM users WHERE id=? AND role='consultant'",[consultantId]):await dbAll("SELECT id,name,goal,photo_data FROM users WHERE role='consultant' AND active=1 ORDER BY name");
   const out=consultants.map(c=>({id:c.id,name:c.name,goal:Number(c.goal||0),photo_data:c.photo_data||null,revenue:0,gross_revenue:0,sales_count:0,awards:[],lost:[],total_prize:0}));
   const byId=new Map(out.map(x=>[x.id,x])); const byConsultant=new Map();
-  for(const s of sales){const c=byId.get(s.consultant_id);if(!c)continue;c.revenue+=Number(s.amount||0);c.gross_revenue+=(s.gross_amount==null?0:Number(s.gross_amount));c.sales_count++;if(!byConsultant.has(c.id))byConsultant.set(c.id,[]);byConsultant.get(c.id).push(s);}
+  for(const s of sales){const c=byId.get(s.consultant_id);if(!c)continue;c.revenue+=saleRankingRevenue(s);c.gross_revenue+=(s.gross_amount==null?0:Number(s.gross_amount));c.sales_count++;if(!byConsultant.has(c.id))byConsultant.set(c.id,[]);byConsultant.get(c.id).push(s);}
   for(const c of out){
     const ss=byConsultant.get(c.id)||[];
     // Sale-based: for a sale, take the highest matching prize in its payment bracket.
