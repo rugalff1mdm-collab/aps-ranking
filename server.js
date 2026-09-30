@@ -480,7 +480,11 @@ app.get('/api/team-rankings',auth,async(req,res)=>{
     for(const s of sales){
       const row=teamUsers.get(Number(s.consultant_id));
       if(!row) continue;
-      const parts=paymentPartsFromSale(s).filter(p=>p.date>=start);
+      // Equipe A: contabiliza o período inteiro.
+      // Equipe B: contabiliza somente a partir da data de início (21/09).
+      const parts=team==='B'
+        ? paymentPartsFromSale(s).filter(p=>p.date>=start)
+        : paymentPartsFromSale(s);
       row.revenue+=parts.reduce((total,p)=>total+rankingValueForPayment(p),0);
       if(String(s.sale_date)>=start) row.sales_count++;
     }
