@@ -600,7 +600,7 @@ app.get('/api/daily-sales',auth,async(req,res)=>{
     const p=[month]; let extra='';
     if(req.user.role==='consultant'){extra=' AND s.consultant_id=?';p.push(req.user.id);}
     else if(consultantId){extra=' AND s.consultant_id=?';p.push(consultantId);}
-    const sales=dedupeSalesForRanking(await dbAll(`SELECT s.* FROM sales s WHERE substr(s.sale_date,1,7)=?${extra}`,[month,...p.slice(1)]);
+    const sales=dedupeSalesForRanking(await dbAll(`SELECT s.* FROM sales s WHERE substr(s.sale_date,1,7)=?${extra}`,[month,...p.slice(1)]));
     const rows=buildDailySaleTotals(sales,month);
     res.json(rows);
   }catch(e){console.error('daily-sales',e);res.status(500).json({error:'Não foi possível calcular o vendido por dia',detail:String(e?.message||e).slice(0,200)})}
