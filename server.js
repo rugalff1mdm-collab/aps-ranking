@@ -1131,10 +1131,12 @@ app.get('/api/supervisor-prizes',auth,rankingAdminOrAdmin,async(req,res)=>{
     const monthEnd=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),0,12,0,0));
     const weekEnd=new Date(weekDate.getTime());
     weekEnd.setUTCDate(weekEnd.getUTCDate()+6);
-    const isFinalPartialWeek=weekEnd.getUTCMonth()===monthEnd.getUTCMonth() &&
-      weekEnd.getUTCFullYear()===monthEnd.getUTCFullYear() &&
-      weekEnd.getUTCDate()===monthEnd.getUTCDate() &&
-      monthEnd.getUTCDate()<31;
+    // A semana final é a que começa dentro do mês e ultrapassa o último dia
+    // do mês. Em setembro/2026, 28/09–04/10 representa somente 28–30/09.
+    const isFinalPartialWeek=weekDate.getUTCFullYear()===monthEnd.getUTCFullYear() &&
+      weekDate.getUTCMonth()===monthEnd.getUTCMonth() &&
+      weekDate.getUTCDate()<=monthEnd.getUTCDate() &&
+      weekEnd>monthEnd;
     let effectiveGoal=Number(weeklyGoal);
     if(isFinalPartialWeek){
       let businessDays=0;
