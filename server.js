@@ -428,12 +428,14 @@ function paymentPartsFromSale(s){
     if(amount>0 && validDate(date)) secondary.push({number:i,amount,date});
   }
 
-  // Só aceitamos valores 02/03 que caibam no bruto. Isso evita resíduos
-  // impossíveis maiores que o total da venda, mas preserva valores sem data
-  // para calcular corretamente o saldo do pagamento 01.
-  const rawSecondaryTotal=secondaryRaw.reduce((sum,p)=>sum+p.amount,0);
-  const usableSecondaryRaw=grossTotal>0 && rawSecondaryTotal <= grossTotal
-    ? secondaryRaw
+  // Pagamentos 02/03 sem data válida NÃO podem retirar valor do pagamento 01.
+  // Eles não são eventos de pagamento para o ranking. O saldo do pagamento 01
+  // deve permanecer com a venda até que exista uma data válida para 02/03.
+  // Isso também evita que uma venda desapareça quando um registro duplicado
+  // foi salvo como pagamento 02/03 sem data.
+  const datedSecondaryTotal=secondary.reduce((sum,p)=>sum+p.amount,0);
+  const usableSecondaryRaw=grossTotal>0 && datedSecondaryTotal <= grossTotal
+    ? secondary
     : [];
 
   let payment1;
