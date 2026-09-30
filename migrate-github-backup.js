@@ -5,9 +5,13 @@ const https = require('https');
 const { DatabaseSync } = require('node:sqlite');
 const { Pool } = require('pg');
 
-const SOURCE_URL = 'https://raw.githubusercontent.com/rugalff1mdm-collab/aps-ranking/main/aps.db';
-const SOURCE_SHA = '959fb5b25f6303641db3d7385d05c6887ecef316';
-const TEMP_DB = path.join(os.tmpdir(), 'aps-ranking-legacy.db');
+const SOURCES = [
+  // O backup anterior é importado primeiro para recuperar todo o histórico.
+  { url:'https://raw.githubusercontent.com/rugalff1mdm-collab/aps-ranking/main/aps-backup-antes-migracao.db', sha:'faee5e40d08c1a89dd5bb4d8c4e9dc5081a2ab45', label:'backup-antes-migracao' },
+  // O aps.db atual é importado por último para prevalecer nos registros que
+  // existem nos dois arquivos.
+  { url:'https://raw.githubusercontent.com/rugalff1mdm-collab/aps-ranking/main/aps.db', sha:'959fb5b25f6303641db3d7385d05c6887ecef316', label:'aps.db' }
+];
 
 function download(url, dest) {
   return new Promise((resolve, reject) => {
@@ -237,50 +241,68 @@ async function run() {
         imported_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         details TEXT
       )`);
-      const done = await c.query('SELECT 1 FROM legacy_imports WHERE source=$1 LIMIT 1', [SOURCE_URL]);
-
-      console.log('Baixando backup legado do GitHub...');
-      // Mesmo que uma importação anterior tenha sido marcada como concluída,
-      // conferimos novamente o backup. Isso permite recuperar vendas que tenham
-      // ficado de fora de uma primeira execução sem duplicá-las.
-
-      await download(SOURCE_URL, TEMP_DB);
-      db = await openSqlite(TEMP_DB);
-      const tables = await sqliteTables(db);
-      console.log('Tabelas encontradas no backup:', [...tables].join(', '));
+      const totals = {users:0,sources:0,sales:0,leads:0,prizeRules:0,prizeLosses:0,prizeAdjustments:0,supervisor:0};
 
       await c.query('BEGIN');
-      const maps = {users:new Map(), sources:new Map()};
+      try {
+        // Os dois backups são idempotentes: registros existentes são atualizados
+        // pelo mesmo ID e os registros ausentes são inseridos. O backup antigo
+        // entra primeiro e o aps.db atual prevalece em caso de sobreposição.
+        for (const source of SOURCES) {
+          const tempDb = path.join(os.tmpdir(), 'aps-ranking-legacy-' + source.label + '.db');
+          let sourceDb = null;
+          try {
+            console.log('Baixando backup legado:', source.label);
+            await download(source.url, tempDb);
+            sourceDb = openSqlite(tempDb);
+            const tables = await sqliteTables(sourceDb);
+            console.log('Tabelas encontradas em', source.label + ':', [...tables].join(', '));
 
-      const users = await importUsers(db, c, maps);
-      const sources = await importLeadSources(db, c, maps);
+            const maps = {users:new Map(), sources:new Map()};
+            const users = await importUsers(sourceDb, c, maps);
+            const sources = await importLeadSources(sourceDb, c, maps);
+            const sales = await importRows(sourceDb, c, 'sales', maps, {consultant_id:true, lead_source_id:true});
+            const leads = await importRows(sourceDb, c, 'leads', maps, {consultant_id:true, lead_source_id:true});
 
-      // Vendas e leads são importados/atualizados sem apagar o que já existe.
-      const sales = await importRows(db, c, 'sales', maps, {consultant_id:true, lead_source_id:true});
-      const leads = await importRows(db, c, 'leads', maps, {consultant_id:true, lead_source_id:true});
+            let prizeRules = 0, prizeLosses = 0, prizeAdjustments = 0, supervisor = 0;
+            if (tables.has('prize_rules')) prizeRules = await replaceSimpleTable(sourceDb, c, 'prize_rules');
+            if (tables.has('supervisor_prize_settings')) supervisor = await replaceSimpleTable(sourceDb, c, 'supervisor_prize_settings');
+            if (tables.has('prize_losses')) prizeLosses = await importRows(sourceDb, c, 'prize_losses', maps, {consultant_id:true, rule_id:true});
+            if (tables.has('prize_adjustments')) prizeAdjustments = await importRows(sourceDb, c, 'prize_adjustments', maps, {consultant_id:true});
 
-      // Regras e configurações do backup substituem apenas as regras/configurações
-      // atuais, mantendo o banco operacional e os dados de vendas intactos.
-      let prizeRules = 0, prizeLosses = 0, prizeAdjustments = 0, supervisor = 0;
-      if (tables.has('prize_rules')) prizeRules = await replaceSimpleTable(db, c, 'prize_rules');
-      if (tables.has('supervisor_prize_settings')) supervisor = await replaceSimpleTable(db, c, 'supervisor_prize_settings');
-      if (tables.has('prize_losses')) prizeLosses = await importRows(db, c, 'prize_losses', maps, {consultant_id:true, rule_id:true});
-      if (tables.has('prize_adjustments')) prizeAdjustments = await importRows(db, c, 'prize_adjustments', maps, {consultant_id:true});
+            totals.users += users;
+            totals.sources += sources;
+            totals.sales += sales;
+            totals.leads += leads;
+            totals.prizeRules += prizeRules;
+            totals.prizeLosses += prizeLosses;
+            totals.prizeAdjustments += prizeAdjustments;
+            totals.supervisor += supervisor;
 
-      if (done.rows.length) {
-        await c.query(
-          'UPDATE legacy_imports SET source_sha=$2, imported_at=CURRENT_TIMESTAMP, details=$3 WHERE source=$1',
-          [SOURCE_URL,SOURCE_SHA,JSON.stringify({users,sources,sales,leads,prizeRules,prizeLosses,prizeAdjustments,supervisor,mode:'repair'})]
-        );
-      } else {
-        await c.query(
-          'INSERT INTO legacy_imports(source,source_sha,details) VALUES($1,$2,$3)',
-          [SOURCE_URL,SOURCE_SHA,JSON.stringify({users,sources,sales,leads,prizeRules,prizeLosses,prizeAdjustments,supervisor})]
-        );
+            await c.query(
+              `INSERT INTO legacy_imports(source,source_sha,details)
+               VALUES($1,$2,$3)
+               ON CONFLICT(source) DO UPDATE SET
+                 source_sha=EXCLUDED.source_sha,
+                 imported_at=CURRENT_TIMESTAMP,
+                 details=EXCLUDED.details`,
+              [source.url, source.sha, JSON.stringify({users,sources,sales,leads,prizeRules,prizeLosses,prizeAdjustments,supervisor,mode:'merge-all'})]
+            );
+          } finally {
+            if (sourceDb) closeSqlite(sourceDb);
+            try { fs.unlinkSync(tempDb); } catch (_) {}
+          }
+        }
+
+        await c.query('COMMIT');
+      } catch (e) {
+        try { await c.query('ROLLBACK'); } catch (_) {}
+        throw e;
       }
+
       await c.query('COMMIT');
 
-      const summary = {users,sources,sales,leads,prizeRules,prizeLosses,prizeAdjustments,supervisor};
+      const summary = totals;
       console.log('MIGRAÇÃO DO BACKUP CONCLUÍDA:', summary);
       return summary;
     } catch (e) {
@@ -291,7 +313,6 @@ async function run() {
     }
   } finally {
     if (db) await closeSqlite(db);
-    try { fs.unlinkSync(TEMP_DB); } catch (_) {}
     await pool.end();
   }
 }
