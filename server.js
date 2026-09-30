@@ -370,19 +370,59 @@ app.patch('/api/me',auth,async(req,res)=>{
   }catch(e){if(String(e.message||'').includes('UNIQUE')) return res.status(400).json({error:'Este e-mail já está em uso'});console.error(e);res.status(500).json({error:'Não foi possível atualizar a conta'});}
 });
 
-// Campanha “Tudo Sem Juros”: nas vendas de 28/09/2026 o ranking considera o valor bruto (sem desconto de juros), preservando o líquido nos demais dias.
+// Ranking: cada pagamento é contabilizado na data em que efetivamente ocorreu.
+// Em 28/09/2026, a campanha Tudo Sem Juros faz o ranking usar o valor bruto.
+// Para pagamentos posteriores, o ranking usa o líquido daquele pagamento.
+function paymentPartsFromSale(s){
+  const out=[];
+  for(let i=1;i<=3;i++){
+    const suf=i===1?'':'_'+i;
+    const amount=i===1
+      ? Number(s.gross_amount||s.amount||0)
+      : Number(s[`payment_amount${suf}`]||0);
+    if(amount<=0) continue;
+    const date=String(s[`payment_date_${i}`]||s.sale_date||'');
+    const fee=i===1
+      ? Number(s.card_fee_amount||0)
+      : Number(s[`card_fee_amount${suf}`]||0);
+    const net=Number(Math.max(0,amount-fee).toFixed(2));
+    out.push({number:i,date,amount:Number(amount.toFixed(2)),net});
+  }
+  return out;
+}
+function rankingValueForPayment(p){
+  return p.date==='2026-09-28' ? p.amount : p.net;
+}
+function buildDailyPaymentTotals(sales){
+  const byDate=new Map();
+  for(const s of sales){
+    for(const p of paymentPartsFromSale(s)){
+      const key=p.date;
+      if(!key) continue;
+      const row=byDate.get(key)||{date:key,gross:0,net:0,sold:0,payments:0};
+      row.gross+=p.amount; row.net+=p.net; row.sold+=rankingValueForPayment(p); row.payments++;
+      byDate.set(key,row);
+    }
+  }
+  return [...byDate.values()].sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+}
 app.get('/api/ranking',auth,async(req,res)=>{
   const month=validMonth(req.query.month);
   const team=String(req.query.team||'').trim().toUpperCase();
   if(team && !['A','B'].includes(team)) return res.status(400).json({error:'Equipe inválida'});
   if(team && req.user.role!=='admin') return res.status(403).json({error:'Acesso restrito'});
-  const {where:rawWhere,params}=dateFilterParts({month},'s');
-  const where=rawWhere.replace(/s\.date/g,'s.sale_date');
-  const teamWhere=team?` AND u.team=?`:''; const finalParams=team?[...params,team]:params;
-  const rows=await dbAll(`SELECT u.id,u.name,u.goal,u.photo_data,u.team,COALESCE(SUM(CASE WHEN s.sale_date='2026-09-28' THEN COALESCE(s.gross_amount,s.amount) ELSE s.amount END),0) revenue,COUNT(s.id) sales_count
-    FROM users u LEFT JOIN sales s ON s.consultant_id=u.id ${where?where.replace(' AND s.',' AND s.'):''}
-    WHERE u.role='consultant' AND u.active=1${teamWhere} GROUP BY u.id ORDER BY revenue DESC,sales_count DESC,u.name ASC`,finalParams);
-  res.json(rows.map(r=>({...r,revenue:Number(r.revenue||0),sales_count:Number(r.sales_count||0),avg_ticket:r.sales_count?Number(r.revenue)/Number(r.sales_count):0,goal_pct:r.goal?Number(r.revenue)/Number(r.goal)*100:0})));
+  const users=await dbAll("SELECT id,name,goal,photo_data,team FROM users WHERE role='consultant' AND active=1"+(team?" AND team=?":""),team?[team]:[]);
+  const sales=await dbAll(`SELECT s.* FROM sales s JOIN users u ON u.id=s.consultant_id
+    WHERE substr(s.sale_date,1,7)=?${team?' AND u.team=?':''}`,team?[month,team]:[month]);
+  const byId=new Map(users.map(u=>[Number(u.id],{...u,revenue:0,sales_count:0})));
+  for(const s of sales){
+    const row=byId.get(Number(s.consultant_id)); if(!row) continue;
+    const parts=paymentPartsFromSale(s);
+    for(const p of parts) row.revenue+=rankingValueForPayment(p);
+    row.sales_count++;
+  }
+  res.json([...byId.values()].map(r=>({...r,revenue:Number(r.revenue.toFixed(2)),sales_count:Number(r.sales_count||0),avg_ticket:r.sales_count?Number(r.revenue)/Number(r.sales_count):0,goal_pct:r.goal?Number(r.revenue)/Number(r.goal)*100:0}))
+    .sort((x,y)=>y.revenue-x.revenue||y.sales_count-x.sales_count||String(x.name).localeCompare(String(y.name))));
 });
 
 app.get('/api/team-rankings',auth,async(req,res)=>{
