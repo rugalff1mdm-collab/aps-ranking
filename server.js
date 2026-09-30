@@ -396,45 +396,53 @@ function paymentPartsFromSale(s){
   const out=[];
   const grossTotal=Number(s.gross_amount ?? 0);
   const netTotal=Number(s.amount ?? 0);
-  const payment2=Number(s.payment_amount_2 || 0);
-  const payment3=Number(s.payment_amount_3 || 0);
   const fee1=Number(s.card_fee_amount || 0);
   const fee2=Number(s.card_fee_amount_2 || 0);
   const fee3=Number(s.card_fee_amount_3 || 0);
 
-  // O banco grava:
-  //   amount       = soma dos líquidos dos pagamentos;
-  //   gross_amount = soma dos valores brutos dos pagamentos;
-  //   payment_amount_2/3 = valores BRUTOS dos pagamentos 02/03.
-  // Portanto o pagamento 01 é sempre o residual do bruto total.
-  // Nunca usamos amount + taxas para decidir entre duas bases, pois isso
-  // podia fazer o pagamento 01 ser reconstruído de uma forma diferente
-  // dos pagamentos 02/03 e duplicar faturamento em vendas divididas.
-  let payment1=Math.max(0,grossTotal-payment2-payment3);
-
-  // Compatibilidade com registros antigos sem gross_amount.
-  if(grossTotal<=0){
-    payment1=Math.max(0,netTotal+fee1+fee2+fee3-payment2-payment3);
+  // Cada venda possui UM valor bruto total. Pagamentos 02/03 só podem
+  // participar se tiverem data própria válida. Registros antigos podem
+  // carregar valores residuais em payment_amount_2/3 sem serem pagamentos
+  // reais; esses valores NÃO podem ser subtraídos do pagamento 01.
+  const secondary=[];
+  for(let i=2;i<=3;i++){
+    const suf='_'+i;
+    const amount=Number(s[`payment_amount${suf}`]||0);
+    const date=String(s[`payment_date_${i}`]||'');
+    if(amount>0 && validDate(date)) secondary.push({number:i,amount,date});
   }
 
-  for(let i=1;i<=3;i++){
-    const suf=i===1?'':'_'+i;
-    const amount=i===1 ? payment1 : Number(s[`payment_amount${suf}`]||0);
-    // Pagamentos 02/03 só existem quando possuem valor E data própria.
-    // Registros antigos podem ter um valor residual em payment_amount_2/3
-    // mesmo sem payment_date_2/3; nesse caso NÃO podem ser tratados como
-    // um novo pagamento na data da venda, pois isso duplica o faturamento.
-    if(amount<=0) continue;
-    const rawDate=s[`payment_date_${i}`];
-    if(i>1 && !validDate(String(rawDate||''))) continue;
-    const date=String(rawDate||s.sale_date||'');
-    const fee=i===1 ? fee1 : Number(s[`card_fee_amount${suf}`]||0);
-    const installmentsRaw=s[`installments${suf}`];
-    const installments=Number(installmentsRaw||0)||0;
+  let payment1;
+  if(grossTotal>0){
+    const secondaryGross=secondary.reduce((sum,p)=>sum+p.amount,0);
+    payment1=Math.max(0,grossTotal-secondaryGross);
+  }else{
+    // Registros antigos sem gross_amount: usa o líquido + taxas, mas somente
+    // desconta pagamentos 02/03 que realmente possuem data.
+    payment1=Math.max(0,netTotal+fee1+secondary.reduce((sum,p)=>{
+      const fee=p.number===2?fee2:fee3;
+      return sum+fee;
+    },0)-secondary.reduce((sum,p)=>sum+p.amount,0));
+  }
+
+  const all=[{number:1,amount:payment1,date:String(s.payment_date_1||s.sale_date||''),fee:fee1},
+    ...secondary.map(p=>({number:p.number,amount:p.amount,date:p.date,fee:p.number===2?fee2:fee3}))];
+
+  for(const p of all){
+    if(p.amount<=0 || !validDate(p.date)) continue;
+    const suf=p.number===1?'':'_'+p.number;
+    const installments=Number(s[`installments${suf}`]||0)||0;
     const paymentType=String(s[`payment_type${suf}`]||'').toLowerCase();
     const noInterest=(paymentType==='avista' && installments===0) || (installments>=1&&installments<=6);
-    const net=Number(Math.max(0,amount-fee).toFixed(2));
-    out.push({number:i,date,amount:Number(amount.toFixed(2)),net,installments,noInterest});
+    const net=Number(Math.max(0,p.amount-p.fee).toFixed(2));
+    out.push({
+      number:p.number,
+      date:p.date,
+      amount:Number(p.amount.toFixed(2)),
+      net,
+      installments,
+      noInterest
+    });
   }
   return out;
 }
