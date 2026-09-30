@@ -238,12 +238,12 @@ async function run() {
         details TEXT
       )`);
       const done = await c.query('SELECT 1 FROM legacy_imports WHERE source=$1 LIMIT 1', [SOURCE_URL]);
-      if (done.rows.length) {
-        console.log('Backup legado já foi importado. Nenhuma alteração feita.');
-        return {skipped:true};
-      }
 
       console.log('Baixando backup legado do GitHub...');
+      // Mesmo que uma importação anterior tenha sido marcada como concluída,
+      // conferimos novamente o backup. Isso permite recuperar vendas que tenham
+      // ficado de fora de uma primeira execução sem duplicá-las.
+
       await download(SOURCE_URL, TEMP_DB);
       db = await openSqlite(TEMP_DB);
       const tables = await sqliteTables(db);
@@ -267,10 +267,17 @@ async function run() {
       if (tables.has('prize_losses')) prizeLosses = await importRows(db, c, 'prize_losses', maps, {consultant_id:true, rule_id:true});
       if (tables.has('prize_adjustments')) prizeAdjustments = await importRows(db, c, 'prize_adjustments', maps, {consultant_id:true});
 
-      await c.query(
-        'INSERT INTO legacy_imports(source,source_sha,details) VALUES($1,$2,$3)',
-        [SOURCE_URL,SOURCE_SHA,JSON.stringify({users,sources,sales,leads,prizeRules,prizeLosses,prizeAdjustments,supervisor})]
-      );
+      if (done.rows.length) {
+        await c.query(
+          'UPDATE legacy_imports SET source_sha=$2, imported_at=CURRENT_TIMESTAMP, details=$3 WHERE source=$1',
+          [SOURCE_URL,SOURCE_SHA,JSON.stringify({users,sources,sales,leads,prizeRules,prizeLosses,prizeAdjustments,supervisor,mode:'repair'})]
+        );
+      } else {
+        await c.query(
+          'INSERT INTO legacy_imports(source,source_sha,details) VALUES($1,$2,$3)',
+          [SOURCE_URL,SOURCE_SHA,JSON.stringify({users,sources,sales,leads,prizeRules,prizeLosses,prizeAdjustments,supervisor})]
+        );
+      }
       await c.query('COMMIT');
 
       const summary = {users,sources,sales,leads,prizeRules,prizeLosses,prizeAdjustments,supervisor};
