@@ -300,8 +300,6 @@ async function run() {
         throw e;
       }
 
-      await c.query('COMMIT');
-
       const summary = totals;
       console.log('MIGRAÇÃO DO BACKUP CONCLUÍDA:', summary);
       return summary;
