@@ -538,10 +538,10 @@ function buildDailySaleTotals(sales,month){
   for(const s of sales){
     const saleDate=String(s.sale_date||'');
     if(!validDate(saleDate) || saleDate.slice(0,7)!==String(month)) continue;
-    const parts=paymentPartsFromSale(s);
+    const parts=rankingPaymentPartsWithSaleNet(s);
     const first=parts.find(p=>p.number===1);
     const gross=Number(s.gross_amount==null ? s.amount : s.gross_amount)||0;
-    const sold=first ? rankingValueForPayment(first) : 0;
+    const sold=first ? Number(first.rankingNet||0) : 0;
     const payments=parts.length;
     const row=byDate.get(saleDate)||{date:saleDate,gross:0,net:0,sold:0,payments:0,sales:0};
     row.gross+=gross;
@@ -610,11 +610,11 @@ app.get('/api/team-rankings',auth,async(req,res)=>{
     for(const s of sales){
       const row=teamUsers.get(Number(s.consultant_id));
       if(!row) continue;
-      const parts=paymentPartsFromSale(s).filter(p=>{
+      const parts=rankingPaymentPartsWithSaleNet(s).filter(p=>{
         if(String(p.date).slice(0,7)!==month) return false;
         return team==='B' ? String(p.date)>=start : true;
       });
-      row.revenue+=parts.reduce((total,p)=>total+rankingValueForPayment(p),0);
+      row.revenue+=parts.reduce((total,p)=>total+Number(p.rankingNet||0),0);
 
       // "Vendas" continua sendo quantidade de vendas, não quantidade de pagamentos.
       // A: mês inteiro. B: somente vendas feitas a partir da virada.
