@@ -88,6 +88,13 @@ async function importUsers(sqlite, client, maps) {
   let count = 0;
   for (const r of rows) {
     const email = String(r.email || '').trim().toLowerCase();
+    const rawRole = String(r.role || '').trim().toLowerCase();
+    const normalizedRole = ['admin','administrator','administrador'].includes(rawRole) ? 'admin'
+      : ['ranking_admin','ranking-admin','ranking admin'].includes(rawRole) ? 'ranking_admin'
+      : 'consultant';
+    const normalizedActive = r.active == null ? 1 : (Number(r.active) ? 1 : 0);
+    r.role = normalizedRole;
+    r.active = normalizedActive;
     let existing = email ? (await client.query('SELECT id,role FROM users WHERE lower(email)=lower($1) LIMIT 1', [email])).rows[0] : null;
 
     if (existing && ['admin','ranking_admin'].includes(String(r.role || '').toLowerCase())) {
@@ -257,6 +264,11 @@ async function run() {
             sourceDb = openSqlite(tempDb);
             const tables = await sqliteTables(sourceDb);
             console.log('Tabelas encontradas em', source.label + ':', [...tables].join(', '));
+            const counts = {};
+            for (const t of ['users','sales','leads','lead_sources','prize_rules','prize_losses','prize_adjustments','supervisor_prize_settings']) {
+              if (tables.has(t)) counts[t] = Number(sqliteGet(sourceDb, `SELECT COUNT(*) AS count FROM ${qi(t)}`).count || 0);
+            }
+            console.log('Contagens no arquivo', source.label + ':', counts);
 
             const maps = {users:new Map(), sources:new Map()};
             const users = await importUsers(sourceDb, c, maps);
@@ -278,6 +290,11 @@ async function run() {
             totals.prizeLosses += prizeLosses;
             totals.prizeAdjustments += prizeAdjustments;
             totals.supervisor += supervisor;
+            const pgCounts = {};
+            for (const t of ['users','sales','leads']) {
+              pgCounts[t] = Number((await c.query(`SELECT COUNT(*)::int AS count FROM ${qi(t)}`)).rows[0].count || 0);
+            }
+            console.log('Contagens no PostgreSQL após', source.label + ':', pgCounts);
 
             await c.query(
               `INSERT INTO legacy_imports(source,source_sha,details)
