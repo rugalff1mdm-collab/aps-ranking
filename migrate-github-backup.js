@@ -2,7 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const https = require('https');
-const sqlite3 = require('sqlite3').verbose();
+const { DatabaseSync } = require('node:sqlite');
 const { Pool } = require('pg');
 
 const SOURCE_URL = 'https://raw.githubusercontent.com/rugalff1mdm-collab/aps-ranking/main/aps.db';
@@ -35,18 +35,16 @@ function download(url, dest) {
 }
 
 function sqliteAll(db, sql, params=[]) {
-  return new Promise((resolve, reject) => db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows)));
+  return db.prepare(sql).all(...params);
 }
 function sqliteGet(db, sql, params=[]) {
-  return new Promise((resolve, reject) => db.get(sql, params, (err, row) => err ? reject(err) : resolve(row)));
+  return db.prepare(sql).get(...params);
 }
 function openSqlite(file) {
-  return new Promise((resolve, reject) => {
-    const db = new sqlite3.Database(file, err => err ? reject(err) : resolve(db));
-  });
+  return new DatabaseSync(file);
 }
 function closeSqlite(db) {
-  return new Promise(resolve => db.close(() => resolve()));
+  try { db.close(); } catch (_) {}
 }
 function qi(name) { return '"' + String(name).replace(/"/g, '""') + '"'; }
 
