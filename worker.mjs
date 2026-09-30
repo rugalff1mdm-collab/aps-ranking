@@ -224,8 +224,8 @@ export default {
 
     try {
       const state = await getRuntime(workerEnv);
-      await ensureDatabase(state);
-
+      // O banco já está provisionado. Não execute migrações no caminho das requisições.
+      // O healthcheck valida a conexão; a inicialização pesada aqui era a causa dos 503 em cold start.
       return await handleAsNodeRequest(3000, request);
     } catch (error) {
       console.error("Falha ao inicializar o banco:", error);
