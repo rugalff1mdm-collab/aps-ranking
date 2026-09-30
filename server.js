@@ -384,23 +384,39 @@ app.patch('/api/me',auth,async(req,res)=>{
 // Para pagamentos posteriores, o ranking usa o líquido daquele pagamento.
 function paymentPartsFromSale(s){
   const out=[];
-  const totalGross=Number(s.gross_amount ?? s.amount ?? 0);
+  const storedNetTotal=Number(s.amount ?? 0);
+  const storedGrossTotal=Number(s.gross_amount ?? 0);
   const payment2=Number(s.payment_amount_2 || 0);
   const payment3=Number(s.payment_amount_3 || 0);
+  const fee1=Number(s.card_fee_amount || 0);
+  const fee2=Number(s.card_fee_amount_2 || 0);
+  const fee3=Number(s.card_fee_amount_3 || 0);
+
+  // O pagamento 01 não possui uma coluna própria no banco. Em vendas com
+  // 02/03 pagamentos, o valor correto do pagamento 01 é o residual do
+  // TOTAL LÍQUIDO + taxas menos os pagamentos 02/03. Isso evita duplicar
+  // uma parcela quando gross_amount antigo ficou inconsistente com amount.
+  const reconciledGrossTotal=storedNetTotal+fee1+fee2+fee3;
+  const totalGross=(storedGrossTotal>0 ? storedGrossTotal : reconciledGrossTotal);
+  const payment1FromGross=Math.max(0,totalGross-payment2-payment3);
+  const payment1FromNet=Math.max(0,reconciledGrossTotal-payment2-payment3);
+  const payment1=Math.abs((payment1FromGross+payment2+payment3)-reconciledGrossTotal)>0.01
+    ? payment1FromNet
+    : payment1FromGross;
+
   for(let i=1;i<=3;i++){
     const suf=i===1?'':'_'+i;
     const amount=i===1
-      ? Math.max(0,totalGross-payment2-payment3)
+      ? payment1
       : Number(s[`payment_amount${suf}`]||0);
     if(amount<=0) continue;
     const date=String(s[`payment_date_${i}`]||s.sale_date||'');
-    const fee=i===1
-      ? Number(s.card_fee_amount||0)
-      : Number(s[`card_fee_amount${suf}`]||0);
-    const installments=Number(s[`installments${suf}`]||0)||0;
-    const noInterest=installments>=1&&installments<=6;
-    // Regra normal: líquido após a taxa. A campanha "Tudo Sem Juros"
-    // é aplicada somente por data em rankingValueForPayment().
+    const fee=i===1 ? fee1 : Number(s[`card_fee_amount${suf}`]||0);
+    const installmentsRaw=s[`installments${suf}`];
+    const installments=Number(installmentsRaw||0)||0;
+    const paymentType=String(s[`payment_type${suf}`]||'').toLowerCase();
+    // Em 30/09, "Tudo Sem Juros" vale para 1x a 6x. À vista equivale a 1x.
+    const noInterest=(paymentType==='avista' && installments===0) || (installments>=1&&installments<=6);
     const net=Number(Math.max(0,amount-fee).toFixed(2));
     out.push({
       number:i,
@@ -415,7 +431,7 @@ function paymentPartsFromSale(s){
 }
 function rankingValueForPayment(p){
   // 28/09: campanha Tudo Sem Juros para qualquer pagamento.
-  // 30/09: campanha Tudo Sem Juros somente de 1x a 6x.
+  // 30/09: campanha Tudo Sem Juros somente de 1x a 6x (à vista conta como 1x).
   // Nos demais dias, segue o cálculo normal (líquido após a taxa).
   return p.date==='2026-09-28' || (p.date==='2026-09-30' && p.noInterest)
     ? p.amount
