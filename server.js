@@ -405,9 +405,12 @@ function paymentPartsFromSale(s){
   return out;
 }
 function rankingValueForPayment(p){
-  // "Tudo Sem Juros" vale somente em 28/09/2026.
-  // Fora de 28/09, o ranking volta à regra normal (valor líquido).
-  return p.date==='2026-09-28' ? p.amount : p.net;
+  // 28/09: Tudo Sem Juros para qualquer pagamento.
+  // 30/09: Tudo Sem Juros somente de 1x a 6x.
+  // Nos demais casos, mantém a regra normal (líquido).
+  return p.date==='2026-09-28' || (p.date==='2026-09-30' && p.noInterest)
+    ? p.amount
+    : p.net;
 }
 function saleRankingRevenueForMonth(s,month){
   return paymentPartsFromSale(s)
