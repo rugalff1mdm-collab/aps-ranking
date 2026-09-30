@@ -570,20 +570,21 @@ function saleRankingRevenue(s){
 function buildDailySaleTotals(sales,month){
   const byDate=new Map();
   for(const s of sales){
-    const saleDate=String(s.sale_date||'');
-    if(!validDate(saleDate) || saleDate.slice(0,7)!==String(month)) continue;
     const parts=rankingPaymentPartsWithSaleNet(s);
-    const first=parts.find(p=>p.number===1);
-    const gross=Number(s.gross_amount==null ? s.amount : s.gross_amount)||0;
-    const sold=first ? Number(first.rankingNet||0) : 0;
-    const payments=parts.length;
-    const row=byDate.get(saleDate)||{date:saleDate,gross:0,net:0,sold:0,payments:0,sales:0};
-    row.gross+=gross;
-    row.net+=Number(s.amount||0);
-    row.sold+=sold;
-    row.payments+=payments;
-    row.sales+=1;
-    byDate.set(saleDate,row);
+    for(const p of parts){
+      const date=String(p.date||'');
+      if(!validDate(date) || date.slice(0,7)!==String(month)) continue;
+      const isFirst=p.number===1;
+      const grossPart=Number(p.amount||0);
+      const rankingPart=Number(p.rankingNet||0);
+      const row=byDate.get(date)||{date,gross:0,net:0,sold:0,payments:0,sales:0};
+      row.gross+=grossPart;
+      row.net+=rankingPart;
+      row.sold+=rankingPart;
+      row.payments+=1;
+      if(isFirst) row.sales+=1;
+      byDate.set(date,row);
+    }
   }
   return [...byDate.values()].map(r=>({
     ...r,
@@ -618,7 +619,6 @@ app.get('/api/ranking',auth,async(req,res)=>{
 });
 
 app.get('/api/team-rankings',auth,async(req,res)=>{
-  await ensureRankingSchema();
   if(req.user.role!=='admin') return res.status(403).json({error:'Acesso restrito'});
   const month=validMonth(req.query.month);
   const start=validDate(req.query.from)?String(req.query.from):(envVar('TEAM_RANK_START_DATE')||'2026-09-21');
@@ -758,16 +758,6 @@ app.get('/api/ranking-admins',auth,async(req,res)=>{
   const rows=await dbAll("SELECT id,name,email,active,created_at FROM users WHERE role='ranking_admin' ORDER BY active DESC,name ASC");
   res.json(rows);
 });
-
-let rankingSchemaPromise=null;
-async function ensureRankingSchema(){
-  if(rankingSchemaPromise) return rankingSchemaPromise;
-  rankingSchemaPromise=(async()=>{
-    await dbQuery("ALTER TABLE users ADD COLUMN IF NOT EXISTS team TEXT NOT NULL DEFAULT 'A'");
-    await dbQuery("UPDATE users SET team='A' WHERE team IS NULL OR team=''");
-  })().catch(error=>{ rankingSchemaPromise=null; throw error; });
-  return rankingSchemaPromise;
-}
 
 app.get('/api/users',auth,adminOnly,async(req,res)=>{
   const rows=await dbAll(`SELECT id,name,email,role,active,goal,photo_data,team,created_at FROM users ORDER BY role DESC,team ASC,name ASC`);res.json(rows);
@@ -1087,13 +1077,29 @@ app.get('/api/supervisor-prizes',auth,rankingAdminOrAdmin,async(req,res)=>{
   const allTeamsStart=String(envVar('SUPERVISOR_ALL_TEAMS_START_DATE')||'2026-09-20');
   // Regra do supervisor: antes da data de virada, somente a Equipe A conta.
   // A partir da data de virada, Equipes A + B contam juntas. Vendas antigas da B não entram.
-  const rows=await dbAll(`
-    SELECT s.sale_date,COALESCE(SUM(s.gross_amount),0) revenue,COUNT(*) sales
-    FROM sales s JOIN users u ON u.id=s.consultant_id
-    WHERE substr(s.sale_date,1,7)=?
-      AND (u.team='A' OR (u.team='B' AND s.sale_date>=?))
-    GROUP BY s.sale_date ORDER BY s.sale_date
-  `,[month,allTeamsStart]);
+  const sourceSales=dedupeSalesForRanking(await dbAll(`
+    SELECT s.* FROM sales s JOIN users u ON u.id=s.consultant_id
+    WHERE (
+      substr(s.sale_date,1,7)=?
+      OR substr(COALESCE(s.payment_date_1,''),1,7)=?
+      OR substr(COALESCE(s.payment_date_2,''),1,7)=?
+      OR substr(COALESCE(s.payment_date_3,''),1,7)=?
+    )
+      AND (u.team='A' OR (u.team='B' AND (s.sale_date>=? OR s.payment_date_1>=? OR s.payment_date_2>=? OR s.payment_date_3>=?)))
+  `,[month,month,month,month,allTeamsStart,allTeamsStart,allTeamsStart,allTeamsStart]));
+  const byDay=new Map();
+  for(const s of sourceSales){
+    for(const p of rankingPaymentPartsWithSaleNet(s)){
+      if(String(p.date).slice(0,7)!==month) continue;
+      const day=String(p.date).slice(0,10);
+      if(!day) continue;
+      const row=byDay.get(day)||{sale_date:day,revenue:0,sales:0};
+      row.revenue+=Number(p.rankingNet||0);
+      if(p.number===1) row.sales+=1;
+      byDay.set(day,row);
+    }
+  }
+  const rows=[...byDay.values()].sort((a,b)=>String(a.sale_date).localeCompare(String(b.sale_date)));
   const dailyGoal=by.daily_goal?.value??5715, weeklyGoal=by.weekly_goal?.value??28600;
   const dailyPrize=by.daily_prize?.value??50, weeklyPrize=by.weekly_prize?.value??100;
   const calcPrize=(revenue,goal,base)=>{const multiples=Math.floor(Number(revenue)/Number(goal));return multiples>0?multiples*Number(base):0};
