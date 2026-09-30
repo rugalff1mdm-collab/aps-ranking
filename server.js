@@ -457,9 +457,11 @@ function paymentPartsFromSale(s){
   for(const p of all){
     if(p.amount<=0 || !validDate(p.date)) continue;
     const suf=p.number===1?'':'_'+p.number;
-    const installments=Number(s[`installments${suf}`]||0)||0;
-    const paymentType=String(s[`payment_type${suf}`]||'').toLowerCase();
-    const noInterest=(paymentType==='avista' && installments===0) || (installments>=1&&installments<=6);
+    // 30/09: "Sem Juros" somente de 1x a 6x.
+    // À vista/0 parcelas equivale a 1x. Acima de 6x é líquido.
+    const rawInstallments=Number(s[`installments${suf}`]||0)||0;
+    const installments=rawInstallments===0 ? 1 : rawInstallments;
+    const noInterest=installments>=1 && installments<=6;
     const net=Number(Math.max(0,p.amount-p.fee).toFixed(2));
     out.push({
       number:p.number,
