@@ -477,13 +477,16 @@ function paymentPartsFromSale(s){
   return out;
 }
 function rankingSaleSignature(s){
+  // Uma venda duplicada pode ter metadados de pagamento diferentes após uma
+  // edição. Para o ranking, a identidade da venda é consultor + cliente +
+  // data da venda + valor líquido. Assim a mesma venda não entra duas vezes.
   const fields=[
-    s.consultant_id,s.client_name,s.sale_date,s.state,
-    s.amount,s.gross_amount,s.payment_type,s.installments,s.card_platform,
-    s.payment_date_1,s.payment_amount_2,s.payment_type_2,s.installments_2,s.card_platform_2,s.payment_date_2,
-    s.payment_amount_3,s.payment_type_3,s.installments_3,s.card_platform_3,s.payment_date_3
+    s.consultant_id,
+    String(s.client_name||'').trim().toLowerCase(),
+    String(s.sale_date||'').trim(),
+    Number(s.amount||0).toFixed(2)
   ];
-  return fields.map(v=>String(v==null?'':v).trim()).join('|');
+  return fields.join('|');
 }
 function dedupeSalesForRanking(sales){
   const seen=new Set();
