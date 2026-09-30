@@ -477,13 +477,13 @@ function paymentPartsFromSale(s){
   return out;
 }
 function rankingSaleSignature(s){
-  // Uma venda duplicada pode ter metadados de pagamento diferentes após uma
-  // edição. Para o ranking, a identidade da venda é consultor + cliente +
-  // data da venda + valor líquido. Assim a mesma venda não entra duas vezes.
+  // Uma venda duplicada pode ter sido gravada novamente com outra data ou
+  // metadados de pagamento. A identidade usada no ranking é consultor +
+  // cliente + valor líquido. A data NÃO diferencia uma cópia da mesma venda.
+  // Assim, a duplicata de Elaine (R$ 2.100) deixa de somar uma segunda vez.
   const fields=[
     s.consultant_id,
-    String(s.client_name||'').trim().toLowerCase(),
-    String(s.sale_date||'').trim(),
+    String(s.client_name||'').trim().toLowerCase().replace(/\\s+/g,' '),
     Number(s.amount||0).toFixed(2)
   ];
   return fields.join('|');
