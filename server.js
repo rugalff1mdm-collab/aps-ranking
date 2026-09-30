@@ -416,7 +416,7 @@ app.get('/api/ranking',auth,async(req,res)=>{
   const users=await dbAll("SELECT id,name,goal,photo_data,team FROM users WHERE role='consultant' AND active=1"+(team?" AND team=?":""),team?[team]:[]);
   const sales=await dbAll(`SELECT s.* FROM sales s JOIN users u ON u.id=s.consultant_id
     WHERE substr(s.sale_date,1,7)=?${team?' AND u.team=?':''}`,team?[month,team]:[month]);
-  const byId=new Map(users.map(u=>[Number(u.id],{...u,revenue:0,sales_count:0})));
+  const byId = new Map(users.map(u => [Number(u.id), {...u, revenue: 0, sales_count: 0}]));
   for(const s of sales){
     const row=byId.get(Number(s.consultant_id)); if(!row) continue;
     const parts=paymentPartsFromSale(s);
