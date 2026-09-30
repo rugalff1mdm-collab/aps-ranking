@@ -1088,18 +1088,32 @@ app.get('/api/supervisor-prizes',auth,rankingAdminOrAdmin,async(req,res)=>{
     )
       AND (u.team='A' OR (u.team='B' AND (s.sale_date>=? OR s.payment_date_1>=? OR s.payment_date_2>=? OR s.payment_date_3>=?)))
   `,[month,month,month,month,allTeamsStart,allTeamsStart,allTeamsStart,allTeamsStart]));
-  // Premiação do supervisor usa faturamento BRUTO por venda/data.
-  // Pagamentos 02/03 entram no ranking financeiro pela data do pagamento,
-  // mas não contam como nova venda nem duplicam a premiação do supervisor.
+  // Premiação do supervisor usa VALOR BRUTO.
+  // Pagamentos 01/02/03 contam no faturamento da diária/semanal na DATA
+  // EFETIVA de cada pagamento. 02/03 não são novas vendas: incrementam
+  // somente o faturamento, não o contador de vendas.
   const byDay=new Map();
-  for(const s of sourceSales){
-    const day=String(s.sale_date||'').slice(0,10);
-    if(!validDate(day) || day.slice(0,7)!==month) continue;
-    const gross=Number(s.gross_amount ?? s.amount ?? 0);
-    const row=byDay.get(day)||{sale_date:day,revenue:0,sales:0};
-    row.revenue+=Number.isFinite(gross)?gross:0;
-    row.sales+=1;
-    byDay.set(day,row);
+  for(const sale of sourceSales){
+    const grossTotal=Number(sale.gross_amount ?? sale.amount ?? 0);
+    const parts=paymentPartsFromSale(sale);
+    const events=[];
+    for(const p of parts){
+      if(!validDate(String(p.date||''))) continue;
+      const grossPart=Number(p.amount||0);
+      if(grossPart<=0) continue;
+      events.push({date:String(p.date).slice(0,10),gross:grossPart,number:p.number});
+    }
+    // Fallback para registros antigos sem divisão de pagamentos.
+    if(!events.length && validDate(String(sale.sale_date||''))){
+      events.push({date:String(sale.sale_date).slice(0,10),gross:grossTotal,number:1});
+    }
+    for(const ev of events){
+      if(ev.date.slice(0,7)!==month) continue;
+      const row=byDay.get(ev.date)||{sale_date:ev.date,revenue:0,sales:0};
+      row.revenue+=ev.gross;
+      if(ev.number===1) row.sales+=1;
+      byDay.set(ev.date,row);
+    }
   }
   const rows=[...byDay.values()].sort((a,b)=>String(a.sale_date).localeCompare(String(b.sale_date)));
   const dailyGoal=by.daily_goal?.value??5715, weeklyGoal=by.weekly_goal?.value??28600;
