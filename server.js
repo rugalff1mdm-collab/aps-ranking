@@ -595,7 +595,6 @@ function buildDailySaleTotals(sales,month){
   })).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
 }
 app.get('/api/ranking',auth,async(req,res)=>{
-  await ensureRankingSchema();
   const month=validMonth(req.query.month);
   const team=String(req.query.team||'').trim().toUpperCase();
   if(team && !['A','B'].includes(team)) return res.status(400).json({error:'Equipe inválida'});
@@ -771,7 +770,6 @@ async function ensureRankingSchema(){
 }
 
 app.get('/api/users',auth,adminOnly,async(req,res)=>{
-  await ensureRankingSchema();
   const rows=await dbAll(`SELECT id,name,email,role,active,goal,photo_data,team,created_at FROM users ORDER BY role DESC,team ASC,name ASC`);res.json(rows);
 });
 app.post('/api/users',auth,adminOnly,async(req,res)=>{
