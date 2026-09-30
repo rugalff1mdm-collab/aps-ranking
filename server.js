@@ -1122,8 +1122,33 @@ app.get('/api/supervisor-prizes',auth,rankingAdminOrAdmin,async(req,res)=>{
   const daily=rows.map(r=>{const revenue=Number(r.revenue),prize=calcPrize(revenue,dailyGoal,dailyPrize);return {...r,revenue,sales:Number(r.sales),hit:revenue>=dailyGoal,multiplier:dailyGoal>0?Math.floor(revenue/dailyGoal):0,prize}});
   const weeks={};rows.forEach(r=>(weeks[weekStart(r.sale_date)]??=[]).push(r));
   const weekly=Object.entries(weeks).map(([start,rs])=>{
-    const revenue=rs.reduce((a,r)=>a+Number(r.revenue),0),prize=calcPrize(revenue,weeklyGoal,weeklyPrize);
-    return {week_start:start,revenue,hit:revenue>=weeklyGoal,multiplier:weeklyGoal>0?Math.floor(revenue/weeklyGoal):0,prize};
+    const revenue=rs.reduce((a,r)=>a+Number(r.revenue),0);
+    // Na semana final de um mês incompleto, a meta do supervisor é proporcional
+    // aos dias úteis restantes do mês. Ex.: 28/09 a 30/09 = 3 dias.
+    // A meta diária é R$ 5.715; 3 dias = R$ 17.145, exibidos arredondados
+    // para a dezena de R$ 50 mais próxima = R$ 17.150.
+    const weekDate=dateOnly(start);
+    const monthEnd=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),0,12,0,0));
+    const weekEnd=new Date(weekDate.getTime());
+    weekEnd.setUTCDate(weekEnd.getUTCDate()+6);
+    const isFinalPartialWeek=weekEnd.getUTCMonth()===monthEnd.getUTCMonth() &&
+      weekEnd.getUTCFullYear()===monthEnd.getUTCFullYear() &&
+      weekEnd.getUTCDate()===monthEnd.getUTCDate() &&
+      monthEnd.getUTCDate()<31;
+    let effectiveGoal=Number(weeklyGoal);
+    if(isFinalPartialWeek){
+      let businessDays=0;
+      const d=new Date(weekDate.getTime());
+      for(let i=0;i<7;i++){
+        const iso=d.toISOString().slice(0,10);
+        const dow=d.getUTCDay();
+        if(iso.slice(0,7)===month && dow>=1 && dow<=5) businessDays++;
+        d.setUTCDate(d.getUTCDate()+1);
+      }
+      if(businessDays>0) effectiveGoal=Math.round((Number(dailyGoal)*businessDays)/50)*50;
+    }
+    const prize=calcPrize(revenue,effectiveGoal,weeklyPrize);
+    return {week_start:start,revenue,goal:effectiveGoal,hit:revenue>=effectiveGoal,multiplier:effectiveGoal>0?Math.floor(revenue/effectiveGoal):0,prize};
   });
   const totalDaily=daily.reduce((a,r)=>a+Number(r.prize),0), totalWeekly=weekly.reduce((a,r)=>a+Number(r.prize),0);
   return res.json({month,all_teams_start:allTeamsStart,settings:by,daily,weekly,total_daily_prize:totalDaily,total_weekly_prize:totalWeekly,total_prize:totalDaily+totalWeekly});
