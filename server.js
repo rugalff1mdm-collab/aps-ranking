@@ -595,6 +595,7 @@ function buildDailySaleTotals(sales,month){
   })).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
 }
 app.get('/api/ranking',auth,async(req,res)=>{
+  await ensureRankingSchema();
   const month=validMonth(req.query.month);
   const team=String(req.query.team||'').trim().toUpperCase();
   if(team && !['A','B'].includes(team)) return res.status(400).json({error:'Equipe inválida'});
@@ -618,6 +619,7 @@ app.get('/api/ranking',auth,async(req,res)=>{
 });
 
 app.get('/api/team-rankings',auth,async(req,res)=>{
+  await ensureRankingSchema();
   if(req.user.role!=='admin') return res.status(403).json({error:'Acesso restrito'});
   const month=validMonth(req.query.month);
   const start=validDate(req.query.from)?String(req.query.from):(envVar('TEAM_RANK_START_DATE')||'2026-09-21');
@@ -758,7 +760,18 @@ app.get('/api/ranking-admins',auth,async(req,res)=>{
   res.json(rows);
 });
 
+let rankingSchemaPromise=null;
+async function ensureRankingSchema(){
+  if(rankingSchemaPromise) return rankingSchemaPromise;
+  rankingSchemaPromise=(async()=>{
+    await dbQuery("ALTER TABLE users ADD COLUMN IF NOT EXISTS team TEXT NOT NULL DEFAULT 'A'");
+    await dbQuery("UPDATE users SET team='A' WHERE team IS NULL OR team=''");
+  })().catch(error=>{ rankingSchemaPromise=null; throw error; });
+  return rankingSchemaPromise;
+}
+
 app.get('/api/users',auth,adminOnly,async(req,res)=>{
+  await ensureRankingSchema();
   const rows=await dbAll(`SELECT id,name,email,role,active,goal,photo_data,team,created_at FROM users ORDER BY role DESC,team ASC,name ASC`);res.json(rows);
 });
 app.post('/api/users',auth,adminOnly,async(req,res)=>{
