@@ -414,12 +414,9 @@ function paymentPartsFromSale(s){
   return out;
 }
 function rankingValueForPayment(p){
-  // 28/09: Tudo Sem Juros para qualquer pagamento.
-  // 30/09: Tudo Sem Juros somente de 1x a 6x.
-  // Nos demais casos, mantém a regra normal (líquido).
-  return p.date==='2026-09-28' || (p.date==='2026-09-30' && p.noInterest)
-    ? p.amount
-    : p.net;
+  // Regra da versão da manhã: 1x a 6x entram pelo valor bruto;
+  // 7x ou mais entram pelo líquido após a taxa.
+  return p.net;
 }
 function saleRankingRevenueForMonth(s,month){
   return paymentPartsFromSale(s)
