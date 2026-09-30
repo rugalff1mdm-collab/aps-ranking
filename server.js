@@ -500,27 +500,35 @@ function dedupeSalesForRanking(sales){
   return out;
 }
 function rankingValueForPayment(p){
-  // Ranking usa EXCLUSIVAMENTE o valor líquido de cada pagamento.
-  // Não existem exceções por data, campanha ou quantidade de parcelas.
+  // Regras promocionais do ranking:
+  // 28/09/2026: todas as vendas feitas na data entram sem juros,
+  // independentemente da quantidade de parcelas.
+  // 30/09/2026: entram sem juros somente pagamentos de 1x a 6x.
+  // Fora dessas regras, permanece o valor líquido normal.
+  const saleDate=String(p.saleDate||'').slice(0,10);
+  const installments=Number(p.installments||1);
+  if(saleDate==='2026-09-28') return Number(p.amount||0);
+  if(saleDate==='2026-09-30' && installments>=1 && installments<=6) return Number(p.amount||0);
   return Number(p.net||0);
 }
 function rankingPaymentPartsWithSaleNet(s){
   const parts=paymentPartsFromSale(s);
   if(!parts.length) return [];
-  // O ranking deve contabilizar o líquido da venda UMA única vez.
-  // Os pagamentos 02/03 apenas distribuem esse líquido pelas datas efetivas;
-  // nunca podem aumentar a receita da venda.
   const saleNet=Number(s.amount||0);
-  if(!Number.isFinite(saleNet) || saleNet<=0) return parts.map(p=>({...p,rankingNet:0}));
+  const saleGross=Number(s.gross_amount||s.amount||0);
+  if(!Number.isFinite(saleNet) || saleNet<=0) return parts.map(p=>({...p,rankingNet:0,saleDate:String(s.sale_date||'')}));
   const totalPaymentAmount=parts.reduce((sum,p)=>sum+Number(p.amount||0),0);
-  if(totalPaymentAmount<=0) return parts.map(p=>({...p,rankingNet:0}));
+  if(totalPaymentAmount<=0) return parts.map(p=>({...p,rankingNet:0,saleDate:String(s.sale_date||'')}));
+  const campaignBase=(String(s.sale_date||'').slice(0,10)==='2026-09-28')
+    ? saleGross
+    : saleNet;
   let allocated=0;
   return parts.map((p,index)=>{
     const share=index===parts.length-1
-      ? Number((saleNet-allocated).toFixed(2))
-      : Number((saleNet*(Number(p.amount||0)/totalPaymentAmount)).toFixed(2));
+      ? Number((campaignBase-allocated).toFixed(2))
+      : Number((campaignBase*(Number(p.amount||0)/totalPaymentAmount)).toFixed(2));
     allocated+=share;
-    return {...p,rankingNet:Math.max(0,share)};
+    return {...p,rankingNet:Math.max(0,share),saleDate:String(s.sale_date||'')};
   });
 }
 function saleRankingRevenueForMonth(s,month){
