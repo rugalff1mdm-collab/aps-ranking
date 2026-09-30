@@ -348,16 +348,9 @@ export default {
     }
 
     try {
-      // A checagem de schema nunca pode derrubar o ranking. Se o banco já estiver
-      // operacional e a migração mínima falhar por lock/concorrência, seguimos para
-      // o handler e deixamos o endpoint reportar o erro real, em vez de transformar
-      // toda a tela em 503.
-      try {
-        await ensureCriticalSchema(workerEnv);
-      } catch (schemaError) {
-        console.error("Schema mínimo não bloqueante:", schemaError);
-        runtimeState.schemaPromise = null;
-      }
+      // O schema de produção é preparado fora do caminho de cada requisição.
+      // Nunca execute ALTER/UPDATE no banco enquanto a tela está abrindo vários
+      // endpoints em paralelo: isso pode causar lock/conexões concorrentes e 503.
       const state = await getRuntime(workerEnv);
       try {
         return noStore(await state.nodeHandler.fetch(request, workerEnv, ctx));
