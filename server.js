@@ -334,7 +334,7 @@ function rankingAdminOrAdmin(req,res,next){
   next();
 }
 function validMonth(value){return /^\d{4}-\d{2}$/.test(value||'')?value:new Date().toISOString().slice(0,7)}
-function validDate(value){return /^\d{4}-\d{2}-\d{2}$/.test(value||'')}
+function validDate(value){const v=String(value||'').slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(v)}
 function calculateAge(birthDate,referenceDate){
   if(!validDate(birthDate)||!validDate(referenceDate)) return null;
   const b=new Date(birthDate+'T00:00:00Z'), r=new Date(referenceDate+'T00:00:00Z');
@@ -423,7 +423,7 @@ function paymentPartsFromSale(s){
   for(let i=2;i<=3;i++){
     const suf='_'+i;
     const amount=Number(s[`payment_amount${suf}`]||0);
-    const date=String(s[`payment_date_${i}`]||'');
+    const date=String(s[`payment_date_${i}`]||'').slice(0,10);
     if(amount>0) secondaryRaw.push({number:i,amount,date});
     if(amount>0 && validDate(date)) secondary.push({number:i,amount,date});
   }
