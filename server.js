@@ -405,10 +405,16 @@ function paymentPartsFromSale(s){
   return out;
 }
 function rankingValueForPayment(p){
-  // Campanha "Tudo Sem Juros": somente em 28/09 o ranking usa o bruto.
-  // Nos demais dias, 1x-6x já não têm juros da campanha/regra normal;
-  // 7x+ usa o líquido após a taxa da plataforma.
-  return p.date==='2026-09-28' ? p.amount : p.net;
+  // Faturamento do ranking:
+  // 28/09/2026: campanha "Tudo Sem Juros" usa o bruto em qualquer condição.
+  // 1x a 6x: também entram pelo bruto, sem desconto de taxa.
+  // 7x a 12x: entra o líquido após a taxa da plataforma.
+  return p.date==='2026-09-28' || p.noInterest ? p.amount : p.net;
+}
+function saleRankingRevenueForMonth(s,month){
+  return paymentPartsFromSale(s)
+    .filter(p=>String(p.date).slice(0,7)===String(month))
+    .reduce((total,p)=>total+rankingValueForPayment(p),0);
 }
 function saleRankingRevenue(s){
   return paymentPartsFromSale(s).reduce((total,p)=>total+rankingValueForPayment(p),0);
@@ -433,13 +439,17 @@ app.get('/api/ranking',auth,async(req,res)=>{
   if(team && req.user.role!=='admin') return res.status(403).json({error:'Acesso restrito'});
   const users=await dbAll("SELECT id,name,goal,photo_data,team FROM users WHERE role='consultant' AND active=1"+(team?" AND team=?":""),team?[team]:[]);
   const sales=await dbAll(`SELECT s.* FROM sales s JOIN users u ON u.id=s.consultant_id
-    WHERE substr(s.sale_date,1,7)=?${team?' AND u.team=?':''}`,team?[month,team]:[month]);
+    WHERE (
+      substr(s.sale_date,1,7)=?
+      OR substr(COALESCE(s.payment_date_1,''),1,7)=?
+      OR substr(COALESCE(s.payment_date_2,''),1,7)=?
+      OR substr(COALESCE(s.payment_date_3,''),1,7)=?
+    )${team?' AND u.team=?':''}`,team?[month,month,month,month,team]:[month,month,month,month]);
   const byId = new Map(users.map(u => [Number(u.id), {...u, revenue: 0, sales_count: 0}]));
   for(const s of sales){
     const row=byId.get(Number(s.consultant_id)); if(!row) continue;
-    const parts=paymentPartsFromSale(s);
-    for(const p of parts) row.revenue+=rankingValueForPayment(p);
-    row.sales_count++;
+    row.revenue+=saleRankingRevenueForMonth(s,month);
+    if(String(s.sale_date).slice(0,7)===month) row.sales_count++;
   }
   res.json([...byId.values()].map(r=>({...r,revenue:Number(r.revenue.toFixed(2)),sales_count:Number(r.sales_count||0),avg_ticket:r.sales_count?Number(r.revenue)/Number(r.sales_count):0,goal_pct:r.goal?Number(r.revenue)/Number(r.goal)*100:0}))
     .sort((x,y)=>y.revenue-x.revenue||y.sales_count-x.sales_count||String(x.name).localeCompare(String(y.name))));
@@ -460,8 +470,9 @@ app.get('/api/team-rankings',auth,async(req,res)=>{
     for(const s of sales){
       const row=teamUsers.get(Number(s.consultant_id));
       if(!row) continue;
-      row.revenue+=saleRankingRevenue(s);
-      row.sales_count++;
+      const parts=paymentPartsFromSale(s).filter(p=>p.date>=start);
+      row.revenue+=parts.reduce((total,p)=>total+rankingValueForPayment(p),0);
+      if(String(s.sale_date)>=start) row.sales_count++;
     }
     const decorated=[...teamUsers.values()].map(r=>({
       ...r,
@@ -647,7 +658,7 @@ async function analytics(req){
   const goalParams=consultantId?[consultantId]:[];
   const goal=await dbGet(`SELECT COALESCE(SUM(u.goal),0) goal FROM users u WHERE u.role='consultant' AND u.active=1${goalWhere}`,goalParams);
 
-  const revenueFor=s=>Number(saleRankingRevenue(s).toFixed(2));
+  const revenueFor=s=>Number(saleRankingRevenueForMonth(s,month).toFixed(2));
   const totalRevenue=sales.reduce((a,s)=>a+revenueFor(s),0);
   const salesCount=sales.length;
 
