@@ -445,6 +445,19 @@ app.get('/api/team-rankings',auth,async(req,res)=>{
   res.json({start,teams});
 });
 
+app.get('/api/daily-sales',auth,async(req,res)=>{
+  try{
+    const month=validMonth(req.query.month);
+    const consultantId=Number(req.query.consultant_id||0)||null;
+    const p=[month]; let extra='';
+    if(req.user.role==='consultant'){extra=' AND s.consultant_id=?';p.push(req.user.id);}
+    else if(consultantId){extra=' AND s.consultant_id=?';p.push(consultantId);}
+    const sales=await dbAll(`SELECT s.* FROM sales s WHERE substr(s.sale_date,1,7)=?${extra}`,p);
+    const rows=buildDailyPaymentTotals(sales);
+    res.json(rows);
+  }catch(e){console.error('daily-sales',e);res.status(500).json({error:'Não foi possível calcular o vendido por dia',detail:String(e?.message||e).slice(0,200)})}
+});
+
 app.get('/api/sales',auth,async(req,res)=>{
   const month=validMonth(req.query.month); const p=[month]; let extra='';
   if(!['admin','ranking_admin'].includes(req.user.role)){extra=' AND s.consultant_id=?';p.push(req.user.id)}
@@ -659,9 +672,16 @@ async function prizeData(month, consultantId=null){
     // Sale-based: for a sale, take the highest matching prize in its payment bracket.
     for(const s of ss){
       let matches=[]; let outsideInstallment=false;
-      const prizeBase=s.gross_amount===null||s.gross_amount===undefined?null:Number(s.gross_amount);
-      if(prizeBase===null) continue;
-      const prizePayment=effectivePrizePayment(s);
+      // Premiação de venda considera somente o primeiro pagamento.
+      // Pagamentos 02/03 entram no faturamento na data em que ocorreram,
+      // mas não geram nova premiação.
+      const payment1Gross=Number(s.gross_amount||s.amount||0)-Number(s.payment_amount_2||0)-Number(s.payment_amount_3||0);
+      const prizeBase=Number(Math.max(0,payment1Gross).toFixed(2));
+      if(prizeBase<=0) continue;
+      const prizePayment={
+        payment_type:normalizePaymentType(s.payment_type),
+        installments:Number(s.installments||0)||null
+      };
       if(prizePayment){
         matches=rules.filter(r=>r.category==='sale' && prizeBase>=Number(r.min_amount||0) && (!r.payment_type || r.payment_type===prizePayment.payment_type) &&
           (!r.max_installments || (prizePayment.payment_type==='parcelado' && Number(prizePayment.installments)<=Number(r.max_installments) && (!r.min_installments || Number(prizePayment.installments)>=Number(r.min_installments)))));
