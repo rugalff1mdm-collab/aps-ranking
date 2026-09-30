@@ -501,13 +501,33 @@ function rankingValueForPayment(p){
   // Não existem exceções por data, campanha ou quantidade de parcelas.
   return Number(p.net||0);
 }
+function rankingPaymentPartsWithSaleNet(s){
+  const parts=paymentPartsFromSale(s);
+  if(!parts.length) return [];
+  // O ranking deve contabilizar o líquido da venda UMA única vez.
+  // Os pagamentos 02/03 apenas distribuem esse líquido pelas datas efetivas;
+  // nunca podem aumentar a receita da venda.
+  const saleNet=Number(s.amount||0);
+  if(!Number.isFinite(saleNet) || saleNet<=0) return parts.map(p=>({...p,rankingNet:0}));
+  const totalPaymentAmount=parts.reduce((sum,p)=>sum+Number(p.amount||0),0);
+  if(totalPaymentAmount<=0) return parts.map(p=>({...p,rankingNet:0}));
+  let allocated=0;
+  return parts.map((p,index)=>{
+    const share=index===parts.length-1
+      ? Number((saleNet-allocated).toFixed(2))
+      : Number((saleNet*(Number(p.amount||0)/totalPaymentAmount)).toFixed(2));
+    allocated+=share;
+    return {...p,rankingNet:Math.max(0,share)};
+  });
+}
 function saleRankingRevenueForMonth(s,month){
-  return paymentPartsFromSale(s)
+  return rankingPaymentPartsWithSaleNet(s)
     .filter(p=>String(p.date).slice(0,7)===String(month))
-    .reduce((total,p)=>total+rankingValueForPayment(p),0);
+    .reduce((total,p)=>total+Number(p.rankingNet||0),0);
 }
 function saleRankingRevenue(s){
-  return paymentPartsFromSale(s).reduce((total,p)=>total+rankingValueForPayment(p),0);
+  return rankingPaymentPartsWithSaleNet(s)
+    .reduce((total,p)=>total+Number(p.rankingNet||0),0);
 }
 // Resumo diário de VENDAS: cada registro da tabela sales entra uma única vez
 // na data da venda. Pagamentos 02/03 continuam sendo usados no ranking mensal
