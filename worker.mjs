@@ -340,7 +340,16 @@ export default {
     }
 
     try {
-      await ensureCriticalSchema(workerEnv);
+      // A checagem de schema nunca pode derrubar o ranking. Se o banco já estiver
+      // operacional e a migração mínima falhar por lock/concorrência, seguimos para
+      // o handler e deixamos o endpoint reportar o erro real, em vez de transformar
+      // toda a tela em 503.
+      try {
+        await ensureCriticalSchema(workerEnv);
+      } catch (schemaError) {
+        console.error("Schema mínimo não bloqueante:", schemaError);
+        runtimeState.schemaPromise = null;
+      }
       const state = await getRuntime(workerEnv);
       try {
         return noStore(await state.nodeHandler.fetch(request, workerEnv, ctx));
