@@ -375,20 +375,32 @@ app.patch('/api/me',auth,async(req,res)=>{
 // Para pagamentos posteriores, o ranking usa o líquido daquele pagamento.
 function paymentPartsFromSale(s){
   const out=[];
+  const totalGross=Number(s.gross_amount ?? s.amount ?? 0);
+  const payment2=Number(s.payment_amount_2 || 0);
+  const payment3=Number(s.payment_amount_3 || 0);
   for(let i=1;i<=3;i++){
     const suf=i===1?'':'_'+i;
     const amount=i===1
-      ? Number(s.gross_amount||s.amount||0)
+      ? Math.max(0,totalGross-payment2-payment3)
       : Number(s[`payment_amount${suf}`]||0);
     if(amount<=0) continue;
     const date=String(s[`payment_date_${i}`]||s.sale_date||'');
     const fee=i===1
       ? Number(s.card_fee_amount||0)
       : Number(s[`card_fee_amount${suf}`]||0);
-    const net=Number(Math.max(0,amount-fee).toFixed(2));
-    const installments=Number(s[`installments_${i}`]||s.installments||0)||0;
+    const installments=Number(s[`installments${suf}`]||0)||0;
     const noInterest=installments>=1&&installments<=6;
-    out.push({number:i,date,amount:Number(amount.toFixed(2)),net:noInterest?Number(amount.toFixed(2)):net,installments,noInterest});
+    const net=noInterest
+      ? Number(amount.toFixed(2))
+      : Number(Math.max(0,amount-fee).toFixed(2));
+    out.push({
+      number:i,
+      date,
+      amount:Number(amount.toFixed(2)),
+      net,
+      installments,
+      noInterest
+    });
   }
   return out;
 }
