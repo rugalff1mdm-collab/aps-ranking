@@ -514,21 +514,44 @@ function rankingValueForPayment(p){
 function rankingPaymentPartsWithSaleNet(s){
   const parts=paymentPartsFromSale(s);
   if(!parts.length) return [];
+  const saleDate=String(s.sale_date||'').slice(0,10);
+
+  // 28/09: toda a venda entra sem juros. Como os pagamentos 01/02/03
+  // já representam partes do bruto, usamos diretamente cada valor pago.
+  if(saleDate==='2026-09-28'){
+    return parts.map(p=>({...p,rankingNet:Number(p.amount||0),saleDate}));
+  }
+
+  // 30/09: somente 1x a 6x entram sem juros. Acima de 6x permanece líquido.
+  if(saleDate==='2026-09-30'){
+    return parts.map(p=>{
+      const n=Number(p.installments||1);
+      return {
+        ...p,
+        rankingNet:(n>=1 && n<=6) ? Number(p.amount||0) : Number(p.net||0),
+        saleDate
+      };
+    });
+  }
+
+  // Demais datas: o líquido da venda é contabilizado UMA única vez e
+  // distribuído entre os pagamentos pelas respectivas proporções.
   const saleNet=Number(s.amount||0);
-  const saleGross=Number(s.gross_amount||s.amount||0);
-  if(!Number.isFinite(saleNet) || saleNet<=0) return parts.map(p=>({...p,rankingNet:0,saleDate:String(s.sale_date||'')}));
+  if(!Number.isFinite(saleNet) || saleNet<=0){
+    return parts.map(p=>({...p,rankingNet:0,saleDate}));
+  }
   const totalPaymentAmount=parts.reduce((sum,p)=>sum+Number(p.amount||0),0);
-  if(totalPaymentAmount<=0) return parts.map(p=>({...p,rankingNet:0,saleDate:String(s.sale_date||'')}));
-  const campaignBase=(String(s.sale_date||'').slice(0,10)==='2026-09-28')
-    ? saleGross
-    : saleNet;
+  if(totalPaymentAmount<=0){
+    return parts.map(p=>({...p,rankingNet:0,saleDate}));
+  }
+
   let allocated=0;
   return parts.map((p,index)=>{
     const share=index===parts.length-1
-      ? Number((campaignBase-allocated).toFixed(2))
-      : Number((campaignBase*(Number(p.amount||0)/totalPaymentAmount)).toFixed(2));
+      ? Number((saleNet-allocated).toFixed(2))
+      : Number((saleNet*(Number(p.amount||0)/totalPaymentAmount)).toFixed(2));
     allocated+=share;
-    return {...p,rankingNet:Math.max(0,share),saleDate:String(s.sale_date||'')};
+    return {...p,rankingNet:Math.max(0,share),saleDate};
   });
 }
 function saleRankingRevenueForMonth(s,month){
