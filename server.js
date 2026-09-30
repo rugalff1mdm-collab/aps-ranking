@@ -384,48 +384,41 @@ app.patch('/api/me',auth,async(req,res)=>{
 // Para pagamentos posteriores, o ranking usa o líquido daquele pagamento.
 function paymentPartsFromSale(s){
   const out=[];
-  const storedNetTotal=Number(s.amount ?? 0);
-  const storedGrossTotal=Number(s.gross_amount ?? 0);
+  const grossTotal=Number(s.gross_amount ?? 0);
+  const netTotal=Number(s.amount ?? 0);
   const payment2=Number(s.payment_amount_2 || 0);
   const payment3=Number(s.payment_amount_3 || 0);
   const fee1=Number(s.card_fee_amount || 0);
   const fee2=Number(s.card_fee_amount_2 || 0);
   const fee3=Number(s.card_fee_amount_3 || 0);
 
-  // O pagamento 01 não possui uma coluna própria no banco. Em vendas com
-  // 02/03 pagamentos, o valor correto do pagamento 01 é o residual do
-  // TOTAL LÍQUIDO + taxas menos os pagamentos 02/03. Isso evita duplicar
-  // uma parcela quando gross_amount antigo ficou inconsistente com amount.
-  const reconciledGrossTotal=storedNetTotal+fee1+fee2+fee3;
-  const totalGross=(storedGrossTotal>0 ? storedGrossTotal : reconciledGrossTotal);
-  const payment1FromGross=Math.max(0,totalGross-payment2-payment3);
-  const payment1FromNet=Math.max(0,reconciledGrossTotal-payment2-payment3);
-  const payment1=Math.abs((payment1FromGross+payment2+payment3)-reconciledGrossTotal)>0.01
-    ? payment1FromNet
-    : payment1FromGross;
+  // O banco grava:
+  //   amount       = soma dos líquidos dos pagamentos;
+  //   gross_amount = soma dos valores brutos dos pagamentos;
+  //   payment_amount_2/3 = valores BRUTOS dos pagamentos 02/03.
+  // Portanto o pagamento 01 é sempre o residual do bruto total.
+  // Nunca usamos amount + taxas para decidir entre duas bases, pois isso
+  // podia fazer o pagamento 01 ser reconstruído de uma forma diferente
+  // dos pagamentos 02/03 e duplicar faturamento em vendas divididas.
+  let payment1=Math.max(0,grossTotal-payment2-payment3);
+
+  // Compatibilidade com registros antigos sem gross_amount.
+  if(grossTotal<=0){
+    payment1=Math.max(0,netTotal+fee1+fee2+fee3-payment2-payment3);
+  }
 
   for(let i=1;i<=3;i++){
     const suf=i===1?'':'_'+i;
-    const amount=i===1
-      ? payment1
-      : Number(s[`payment_amount${suf}`]||0);
+    const amount=i===1 ? payment1 : Number(s[`payment_amount${suf}`]||0);
     if(amount<=0) continue;
     const date=String(s[`payment_date_${i}`]||s.sale_date||'');
     const fee=i===1 ? fee1 : Number(s[`card_fee_amount${suf}`]||0);
     const installmentsRaw=s[`installments${suf}`];
     const installments=Number(installmentsRaw||0)||0;
     const paymentType=String(s[`payment_type${suf}`]||'').toLowerCase();
-    // Em 30/09, "Tudo Sem Juros" vale para 1x a 6x. À vista equivale a 1x.
     const noInterest=(paymentType==='avista' && installments===0) || (installments>=1&&installments<=6);
     const net=Number(Math.max(0,amount-fee).toFixed(2));
-    out.push({
-      number:i,
-      date,
-      amount:Number(amount.toFixed(2)),
-      net,
-      installments,
-      noInterest
-    });
+    out.push({number:i,date,amount:Number(amount.toFixed(2)),net,installments,noInterest});
   }
   return out;
 }
