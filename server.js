@@ -495,12 +495,9 @@ function dedupeSalesForRanking(sales){
   return out;
 }
 function rankingValueForPayment(p){
-  // 28/09: campanha Tudo Sem Juros para qualquer pagamento.
-  // 30/09: campanha Tudo Sem Juros somente de 1x a 6x (à vista conta como 1x).
-  // Nos demais dias, segue o cálculo normal (líquido após a taxa).
-  return p.date==='2026-09-28' || (p.date==='2026-09-30' && p.noInterest)
-    ? p.amount
-    : p.net;
+  // Ranking usa EXCLUSIVAMENTE o valor líquido de cada pagamento.
+  // Não existem exceções por data, campanha ou quantidade de parcelas.
+  return Number(p.net||0);
 }
 function saleRankingRevenueForMonth(s,month){
   return paymentPartsFromSale(s)
