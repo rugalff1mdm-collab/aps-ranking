@@ -405,11 +405,9 @@ function paymentPartsFromSale(s){
   return out;
 }
 function rankingValueForPayment(p){
-  // Faturamento do ranking:
-  // 28/09/2026: campanha "Tudo Sem Juros" usa o bruto em qualquer condição.
-  // 1x a 6x: também entram pelo bruto, sem desconto de taxa.
-  // 7x a 12x: entra o líquido após a taxa da plataforma.
-  return p.date==='2026-09-28' || p.noInterest ? p.amount : p.net;
+  // "Tudo Sem Juros" vale somente em 28/09/2026.
+  // Fora de 28/09, o ranking volta à regra normal (valor líquido).
+  return p.date==='2026-09-28' ? p.amount : p.net;
 }
 function saleRankingRevenueForMonth(s,month){
   return paymentPartsFromSale(s)
