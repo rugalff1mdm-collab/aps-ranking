@@ -411,10 +411,15 @@ function paymentPartsFromSale(s){
     const date=String(s[`payment_date_${i}`]||'');
     if(amount>0 && validDate(date)) secondary.push({number:i,amount,date});
   }
+  // Pagamentos 02/03 só entram se couberem dentro do bruto da venda.
+  // Resíduos antigos que igualam/excedem o bruto não são pagamentos reais.
+  const usableSecondary = grossTotal>0
+    ? (secondary.length && secondary.reduce((sum,p)=>sum+p.amount,0) < grossTotal ? secondary : [])
+    : secondary;
 
   let payment1;
   if(grossTotal>0){
-    const secondaryGross=secondary.reduce((sum,p)=>sum+p.amount,0);
+    const secondaryGross=usableSecondary.reduce((sum,p)=>sum+p.amount,0);
     payment1=Math.max(0,grossTotal-secondaryGross);
   }else{
     // Registros antigos sem gross_amount: usa o líquido + taxas, mas somente
@@ -426,7 +431,7 @@ function paymentPartsFromSale(s){
   }
 
   const all=[{number:1,amount:payment1,date:String(s.payment_date_1||s.sale_date||''),fee:fee1},
-    ...secondary.map(p=>({number:p.number,amount:p.amount,date:p.date,fee:p.number===2?fee2:fee3}))];
+    ...usableSecondary.map(p=>({number:p.number,amount:p.amount,date:p.date,fee:p.number===2?fee2:fee3}))];
 
   for(const p of all){
     if(p.amount<=0 || !validDate(p.date)) continue;
@@ -443,6 +448,26 @@ function paymentPartsFromSale(s){
       installments,
       noInterest
     });
+  }
+  return out;
+}
+function rankingSaleSignature(s){
+  const fields=[
+    s.consultant_id,s.client_name,s.sale_date,s.state,
+    s.amount,s.gross_amount,s.payment_type,s.installments,s.card_platform,
+    s.payment_date_1,s.payment_amount_2,s.payment_type_2,s.installments_2,s.card_platform_2,s.payment_date_2,
+    s.payment_amount_3,s.payment_type_3,s.installments_3,s.card_platform_3,s.payment_date_3
+  ];
+  return fields.map(v=>String(v==null?'':v).trim()).join('|');
+}
+function dedupeSalesForRanking(sales){
+  const seen=new Set();
+  const out=[];
+  for(const s of sales||[]){
+    const key=rankingSaleSignature(s);
+    if(seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
   }
   return out;
 }
@@ -499,13 +524,13 @@ app.get('/api/ranking',auth,async(req,res)=>{
   if(team && !['A','B'].includes(team)) return res.status(400).json({error:'Equipe inválida'});
   if(team && req.user.role!=='admin') return res.status(403).json({error:'Acesso restrito'});
   const users=await dbAll("SELECT id,name,goal,photo_data,team FROM users WHERE role='consultant' AND active=1"+(team?" AND team=?":""),team?[team]:[]);
-  const sales=await dbAll(`SELECT s.* FROM sales s JOIN users u ON u.id=s.consultant_id
+  const sales=dedupeSalesForRanking(await dbAll(`SELECT s.* FROM sales s JOIN users u ON u.id=s.consultant_id
     WHERE (
       substr(s.sale_date,1,7)=?
       OR substr(COALESCE(s.payment_date_1,''),1,7)=?
       OR substr(COALESCE(s.payment_date_2,''),1,7)=?
       OR substr(COALESCE(s.payment_date_3,''),1,7)=?
-    )${team?' AND u.team=?':''}`,team?[month,month,month,month,team]:[month,month,month,month]);
+    )${team?' AND u.team=?':''}`,team?[month,month,month,month,team]:[month,month,month,month]));
   const byId = new Map(users.map(u => [Number(u.id), {...u, revenue: 0, sales_count: 0}]));
   for(const s of sales){
     const row=byId.get(Number(s.consultant_id)); if(!row) continue;
@@ -528,7 +553,7 @@ app.get('/api/team-rankings',auth,async(req,res)=>{
     // A receita segue exatamente a mesma base do ranking geral:
     // pagamentos efetivados no mês selecionado. A Equipe B, além disso,
     // só considera pagamentos efetivados a partir da data de virada.
-    const sales=await dbAll(
+    const sales=dedupeSalesForRanking(await dbAll(
       `SELECT s.* FROM sales s JOIN users u ON u.id=s.consultant_id
        WHERE u.role='consultant' AND u.active=1 AND u.team=?
          AND (
@@ -538,7 +563,7 @@ app.get('/api/team-rankings',auth,async(req,res)=>{
            OR substr(COALESCE(s.payment_date_3,''),1,7)=?
          )`,
       [team,month,month,month,month]
-    );
+    ));
 
     for(const s of sales){
       const row=teamUsers.get(Number(s.consultant_id));
@@ -575,7 +600,7 @@ app.get('/api/daily-sales',auth,async(req,res)=>{
     const p=[month]; let extra='';
     if(req.user.role==='consultant'){extra=' AND s.consultant_id=?';p.push(req.user.id);}
     else if(consultantId){extra=' AND s.consultant_id=?';p.push(consultantId);}
-    const sales=await dbAll(`SELECT s.* FROM sales s WHERE substr(s.sale_date,1,7)=?${extra}`,[month,...p.slice(1)]);
+    const sales=dedupeSalesForRanking(await dbAll(`SELECT s.* FROM sales s WHERE substr(s.sale_date,1,7)=?${extra}`,[month,...p.slice(1)]);
     const rows=buildDailySaleTotals(sales,month);
     res.json(rows);
   }catch(e){console.error('daily-sales',e);res.status(500).json({error:'Não foi possível calcular o vendido por dia',detail:String(e?.message||e).slice(0,200)})}
@@ -729,12 +754,12 @@ async function analytics(req){
 
   // O faturamento dos indicadores precisa usar exatamente a mesma regra do ranking.
   // Antes, analytics somava sales.amount (líquido total), causando divergência com o ranking.
-  const sales=await dbAll(
+  const sales=dedupeSalesForRanking(await dbAll(
     `SELECT s.*,u.name consultant_name,u.goal,u.photo_data,u.team
      FROM sales s JOIN users u ON u.id=s.consultant_id
      WHERE 1=1${salesWhere}`,
     salesParams
-  );
+  ));
   const leads=await dbGet(`SELECT COALESCE(SUM(l.quantity),0) leads FROM leads l WHERE 1=1${leadWhere}`,leadParams);
   const goalWhere=consultantId?' AND u.id=?':'';
   const goalParams=consultantId?[consultantId]:[];
@@ -828,9 +853,9 @@ async function prizeData(month, consultantId=null){
   const teamBSalesStart=String(envVar('TEAM_B_PRIZE_START_DATE')||'2026-09-21');
   // Equipe A mantém as premiações normais, inclusive sobre vendas anteriores.
   // Equipe B só recebe premiação sobre vendas feitas a partir da data configurada.
-  const sales=await dbAll(`SELECT s.*,u.name consultant_name,u.team FROM sales s JOIN users u ON u.id=s.consultant_id
+  const sales=dedupeSalesForRanking(await dbAll(`SELECT s.*,u.name consultant_name,u.team FROM sales s JOIN users u ON u.id=s.consultant_id
     WHERE substr(s.sale_date,1,7)=? AND (u.team='A' OR (u.team='B' AND s.sale_date>=?))
-    ORDER BY s.sale_date ASC,s.id ASC`,[month,teamBSalesStart]);
+    ORDER BY s.sale_date ASC,s.id ASC`,[month,teamBSalesStart]));
   const consultants=consultantId?await dbAll("SELECT id,name,goal,photo_data FROM users WHERE id=? AND role='consultant'",[consultantId]):await dbAll("SELECT id,name,goal,photo_data FROM users WHERE role='consultant' AND active=1 ORDER BY name");
   const out=consultants.map(c=>({id:c.id,name:c.name,goal:Number(c.goal||0),photo_data:c.photo_data||null,revenue:0,gross_revenue:0,sales_count:0,awards:[],lost:[],total_prize:0}));
   const byId=new Map(out.map(x=>[x.id,x])); const byConsultant=new Map();
