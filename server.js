@@ -945,8 +945,9 @@ async function prizeData(month, consultantId=null){
       // Premiação de venda considera somente o primeiro pagamento.
       // Pagamentos 02/03 entram no faturamento na data em que ocorreram,
       // mas não geram nova premiação.
-      const payment1Gross=Number(s.gross_amount||s.amount||0)-Number(s.payment_amount_2||0)-Number(s.payment_amount_3||0);
-      const prizeBase=Number(Math.max(0,payment1Gross).toFixed(2));
+      // Premiação de consultor usa SEMPRE o valor BRUTO da venda.
+      // Pagamentos 02/03 não criam uma nova premiação.
+      const prizeBase=Number(Math.max(0,Number(s.gross_amount ?? s.amount ?? 0)).toFixed(2));
       if(prizeBase<=0) continue;
       const prizePayment={
         payment_type:normalizePaymentType(s.payment_type),
@@ -1087,17 +1088,18 @@ app.get('/api/supervisor-prizes',auth,rankingAdminOrAdmin,async(req,res)=>{
     )
       AND (u.team='A' OR (u.team='B' AND (s.sale_date>=? OR s.payment_date_1>=? OR s.payment_date_2>=? OR s.payment_date_3>=?)))
   `,[month,month,month,month,allTeamsStart,allTeamsStart,allTeamsStart,allTeamsStart]));
+  // Premiação do supervisor usa faturamento BRUTO por venda/data.
+  // Pagamentos 02/03 entram no ranking financeiro pela data do pagamento,
+  // mas não contam como nova venda nem duplicam a premiação do supervisor.
   const byDay=new Map();
   for(const s of sourceSales){
-    for(const p of rankingPaymentPartsWithSaleNet(s)){
-      if(String(p.date).slice(0,7)!==month) continue;
-      const day=String(p.date).slice(0,10);
-      if(!day) continue;
-      const row=byDay.get(day)||{sale_date:day,revenue:0,sales:0};
-      row.revenue+=Number(p.rankingNet||0);
-      if(p.number===1) row.sales+=1;
-      byDay.set(day,row);
-    }
+    const day=String(s.sale_date||'').slice(0,10);
+    if(!validDate(day) || day.slice(0,7)!==month) continue;
+    const gross=Number(s.gross_amount ?? s.amount ?? 0);
+    const row=byDay.get(day)||{sale_date:day,revenue:0,sales:0};
+    row.revenue+=Number.isFinite(gross)?gross:0;
+    row.sales+=1;
+    byDay.set(day,row);
   }
   const rows=[...byDay.values()].sort((a,b)=>String(a.sale_date).localeCompare(String(b.sale_date)));
   const dailyGoal=by.daily_goal?.value??5715, weeklyGoal=by.weekly_goal?.value??28600;
