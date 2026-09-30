@@ -141,9 +141,9 @@ async function getRuntime(workerEnv) {
     // O Cloudflare httpServerHandler gerencia o listen/roteamento do servidor.
     // Não chamamos server.listen() manualmente para evitar EADDRINUSE em cold start.
     runtimeState.nodeHandler = httpServerHandler(runtimeState.server);
-    // Garante o esquema mínimo usado pelas rotas de usuários, ranking e premiações.
-    // Executa uma única vez por isolamento do Worker; não roda migração histórica.
-    await ensureProductionSchema(workerEnv);
+    // O schema de produção já é gerenciado pelo banco/migrações.
+    // Não altere tabelas durante cada cold start do Worker: isso causava
+    // falhas de inicialização e 503 em endpoints que abrem em paralelo.
     runtimeState.loaded = true;
     return runtimeState;
   })().catch(error => {
