@@ -410,8 +410,14 @@ function paymentPartsFromSale(s){
   for(let i=1;i<=3;i++){
     const suf=i===1?'':'_'+i;
     const amount=i===1 ? payment1 : Number(s[`payment_amount${suf}`]||0);
+    // Pagamentos 02/03 só existem quando possuem valor E data própria.
+    // Registros antigos podem ter um valor residual em payment_amount_2/3
+    // mesmo sem payment_date_2/3; nesse caso NÃO podem ser tratados como
+    // um novo pagamento na data da venda, pois isso duplica o faturamento.
     if(amount<=0) continue;
-    const date=String(s[`payment_date_${i}`]||s.sale_date||'');
+    const rawDate=s[`payment_date_${i}`];
+    if(i>1 && !validDate(String(rawDate||''))) continue;
+    const date=String(rawDate||s.sale_date||'');
     const fee=i===1 ? fee1 : Number(s[`card_fee_amount${suf}`]||0);
     const installmentsRaw=s[`installments${suf}`];
     const installments=Number(installmentsRaw||0)||0;
