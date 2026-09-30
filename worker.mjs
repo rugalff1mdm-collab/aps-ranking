@@ -7,6 +7,7 @@ let runtimeState = globalThis.__APS_RANKING_RUNTIME || {
   initPromise: null,
   runtimePromise: null,
   server: null,
+  port: null,
 };
 globalThis.__APS_RANKING_RUNTIME = runtimeState;
 
@@ -137,8 +138,11 @@ async function getRuntime(workerEnv) {
       };
       server.once("listening", onListening);
       server.once("error", onError);
-      server.listen(3000);
+      server.listen(0);
     });
+    const address = runtimeState.server.address();
+    runtimeState.port = typeof address === "object" && address ? address.port : null;
+    if (!runtimeState.port) throw new Error("Não foi possível obter a porta interna do Worker.");
     runtimeState.app = app;
     runtimeState.init = init;
     runtimeState.loaded = true;
@@ -224,9 +228,10 @@ export default {
 
     try {
       const state = await getRuntime(workerEnv);
-      await ensureDatabase(state);
-
-      return await handleAsNodeRequest(3000, request);
+      // O banco já está provisionado e é verificado pelo healthcheck. Não execute
+      // migrações durante cada publicação/primeira requisição do Worker.
+      // Isso elimina uma fonte recorrente de 503 durante cold starts.
+      return await handleAsNodeRequest(state.port, request);
     } catch (error) {
       console.error("Falha ao inicializar o banco:", error);
       const message = String(error?.message || error || "Erro desconhecido");
