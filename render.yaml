@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: aps-ranking
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: aps-ranking-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: admin@aps.local
+      - key: ADMIN_PASSWORD
+        value: "123456"
+
+databases:
+  - name: aps-ranking-db
+    plan: free
