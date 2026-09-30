@@ -1,4 +1,4 @@
-import { handleAsNodeRequest } from "cloudflare:node";
+import { handleAsNodeRequest, httpServerHandler } from "cloudflare:node";
 import { createServer } from "node:http";
 
 let runtimeState = globalThis.__APS_RANKING_RUNTIME || {
@@ -7,6 +7,7 @@ let runtimeState = globalThis.__APS_RANKING_RUNTIME || {
   initPromise: null,
   runtimePromise: null,
   server: null,
+  nodeHandler: null,
 };
 globalThis.__APS_RANKING_RUNTIME = runtimeState;
 
@@ -141,6 +142,7 @@ async function getRuntime(workerEnv) {
     });
     runtimeState.app = app;
     runtimeState.init = init;
+    runtimeState.nodeHandler = httpServerHandler(runtimeState.server);
     runtimeState.loaded = true;
     return runtimeState;
   })().catch(error => {
@@ -226,7 +228,7 @@ export default {
       const state = await getRuntime(workerEnv);
       // O banco já está provisionado. Não execute migrações no caminho das requisições.
       // O healthcheck valida a conexão; a inicialização pesada aqui era a causa dos 503 em cold start.
-      return await handleAsNodeRequest(3000, request);
+      return await runtimeState.nodeHandler.fetch(request, workerEnv, ctx);
     } catch (error) {
       console.error("Falha ao inicializar o banco:", error);
       const message = String(error?.message || error || "Erro desconhecido");
