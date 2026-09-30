@@ -414,9 +414,12 @@ function paymentPartsFromSale(s){
   return out;
 }
 function rankingValueForPayment(p){
-  // Regra da versão da manhã: 1x a 6x entram pelo valor bruto;
-  // 7x ou mais entram pelo líquido após a taxa.
-  return p.net;
+  // 28/09: campanha Tudo Sem Juros para qualquer pagamento.
+  // 30/09: campanha Tudo Sem Juros somente de 1x a 6x.
+  // Nos demais dias, segue o cálculo normal (líquido após a taxa).
+  return p.date==='2026-09-28' || (p.date==='2026-09-30' && p.noInterest)
+    ? p.amount
+    : p.net;
 }
 function saleRankingRevenueForMonth(s,month){
   return paymentPartsFromSale(s)
