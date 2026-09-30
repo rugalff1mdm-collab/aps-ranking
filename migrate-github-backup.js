@@ -164,6 +164,74 @@ async function importLeadSources(sqlite, client, maps) {
   return count;
 }
 
+function saleKey(r) {
+  const norm = v => String(v ?? '').trim().toLowerCase();
+  const num = v => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toFixed(2) : '0.00';
+  };
+  return [
+    Number(r.consultant_id || 0),
+    norm(r.client_name),
+    norm(r.sale_date),
+    num(r.gross_amount ?? r.amount),
+    norm(r.payment_type),
+    Number(r.installments || 0),
+    num(r.payment_amount_2),
+    norm(r.payment_type_2),
+    Number(r.installments_2 || 0),
+    norm(r.payment_date_2),
+    num(r.payment_amount_3),
+    norm(r.payment_type_3),
+    Number(r.installments_3 || 0),
+    norm(r.payment_date_3)
+  ].join('|');
+}
+
+async function importSales(sqlite, client, maps) {
+  if (!(await tableExists(sqlite, 'sales'))) return 0;
+  const rows = await sqliteAll(sqlite, 'SELECT * FROM sales ORDER BY id');
+  const cols = await pgColumns(client, 'sales');
+
+  // IMPORTANTE: IDs das duas bases SQLite não são globais.
+  // Não podemos fazer upsert pelo id, pois a venda #1 do backup pode ser
+  // diferente da venda #1 do aps.db. O objetivo é preservar TODAS as vendas.
+  const existingRows = (await client.query(
+    `SELECT id,consultant_id,client_name,sale_date,gross_amount,amount,payment_type,installments,
+            payment_amount_2,payment_type_2,installments_2,payment_date_2,
+            payment_amount_3,payment_type_3,installments_3,payment_date_3
+       FROM sales`
+  )).rows;
+  const keys = new Set(existingRows.map(saleKey));
+
+  let count = 0;
+  for (const raw of rows) {
+    const r = {...raw};
+    if (r.consultant_id != null) r.consultant_id = maps.users.get(Number(r.consultant_id)) || null;
+    if (r.lead_source_id != null) r.lead_source_id = maps.sources.get(Number(r.lead_source_id)) || null;
+    if (!r.consultant_id) {
+      console.log('Venda ignorada: consultor não mapeado, id SQLite=', r.id);
+      continue;
+    }
+
+    const key = saleKey(r);
+    if (keys.has(key)) continue;
+
+    const insertCols = commonColumns([r], cols).filter(c => c !== 'id');
+    if (!insertCols.length) continue;
+    const vals = insertCols.map(col => r[col]);
+    await client.query(
+      `INSERT INTO sales (${insertCols.map(qi).join(',')})
+       VALUES (${vals.map((_,i)=>'$'+(i+1)).join(',')})`,
+      vals
+    );
+    keys.add(key);
+    count++;
+  }
+  await resetSequence(client, 'sales');
+  return count;
+}
+
 async function importRows(sqlite, client, table, maps, foreignMap) {
   if (!(await tableExists(sqlite, table))) return 0;
   const rows = await sqliteAll(sqlite, 'SELECT * FROM ' + qi(table) + ' ORDER BY id');
@@ -207,7 +275,6 @@ async function importRows(sqlite, client, table, maps, foreignMap) {
   await resetSequence(client, table);
   return count;
 }
-
 async function replaceSimpleTable(sqlite, client, table, keyColumns=[]) {
   if (!(await tableExists(sqlite, table))) return 0;
   const rows = await sqliteAll(sqlite, 'SELECT * FROM ' + qi(table) + ' ORDER BY id');
@@ -273,7 +340,7 @@ async function run() {
             const maps = {users:new Map(), sources:new Map()};
             const users = await importUsers(sourceDb, c, maps);
             const sources = await importLeadSources(sourceDb, c, maps);
-            const sales = await importRows(sourceDb, c, 'sales', maps, {consultant_id:true, lead_source_id:true});
+            const sales = await importSales(sourceDb, c, maps);
             const leads = await importRows(sourceDb, c, 'leads', maps, {consultant_id:true, lead_source_id:true});
 
             let prizeRules = 0, prizeLosses = 0, prizeAdjustments = 0, supervisor = 0;
