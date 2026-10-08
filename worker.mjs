@@ -72,15 +72,17 @@ async function loginDirect(request, workerEnv) {
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
           )`);
           let admin=(await client.query("SELECT id,name,email,role,goal,photo_data FROM users WHERE role='admin' ORDER BY id LIMIT 1")).rows[0];
+          const {default:bcrypt}=await import("bcryptjs");
+          const passwordHash=await bcrypt.hash(adminPassword,10);
           if(admin){
             admin=(await client.query(
-              "UPDATE users SET name=$1,email=$2,active=1 WHERE id=$3 RETURNING id,name,email,role,goal,photo_data",
-              ["Administrador",adminEmail,admin.id]
+              "UPDATE users SET name=$1,email=$2,password_hash=$3,active=1 WHERE id=$4 RETURNING id,name,email,role,goal,photo_data",
+              ["Administrador",adminEmail,passwordHash,admin.id]
             )).rows[0];
           }else{
             admin=(await client.query(
-              "INSERT INTO users (name,email,password_hash,role,goal,active) VALUES ($1,$2,$3,'admin',0,1) ON CONFLICT(email) DO UPDATE SET name=EXCLUDED.name,role='admin',active=1 RETURNING id,name,email,role,goal,photo_data",
-              ["Administrador",adminEmail,adminPassword]
+              "INSERT INTO users (name,email,password_hash,role,goal,active) VALUES ($1,$2,$3,'admin',0,1) ON CONFLICT(email) DO UPDATE SET name=EXCLUDED.name,password_hash=EXCLUDED.password_hash,role='admin',active=1 RETURNING id,name,email,role,goal,photo_data",
+              ["Administrador",adminEmail,passwordHash]
             )).rows[0];
           }
           const token=await signJwt({id:admin.id,name:admin.name,email:admin.email,role:"admin"},secret);
