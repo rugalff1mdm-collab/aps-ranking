@@ -141,6 +141,6 @@ Esta versão usa PostgreSQL via `DATABASE_URL`. O script `migrate-sqlite-to-post
 - Vendas novas possuem forma de pagamento (à vista/parcelado) e número de parcelas.
 - Regras de perda de premiação ficam registradas por mês.
 - Vendas antigas sem forma de pagamento não são classificadas automaticamente como à vista ou parceladas, evitando premiação indevida; elas continuam válidas para metas e acumulados.
-- Configuração inicial do supervisor: meta diária R$ 28.600, prêmio diário R$ 50; meta semanal R$ 5.715, prêmio semanal R$ 100. Os valores podem ser alterados no sistema.
+- Configuração inicial do supervisor: meta diária R$ 7.142, prêmio diário R$ 50; meta semanal R$ 28.600, prêmio semanal R$ 100. A meta diária padrão é migrada automaticamente de configurações antigas (R$ 5.715 ou R$ 28.600) para R$ 7.142; valores personalizados diferentes são preservados. Os valores podem ser alterados no sistema.
 
 <!-- deploy: 2026-09-26 -->
