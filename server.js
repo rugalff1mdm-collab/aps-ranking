@@ -289,10 +289,10 @@ async function init(){
     ];
     for(const r of rules) await dbQuery(`INSERT INTO prize_rules(name,category,frequency,payment_type,min_amount,max_installments,min_installments,prize_amount,active,description) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9)`,[r[0],r[1],r[1]==='sale'?'sale':r[1],r[2]||null,r[3],r[4],r[1]==='sale'?(r[4]===6?2:r[4]):null,r[5],r[6]]);
   }
-  const supDefaults=[['daily_goal',5715],['daily_prize',50],['weekly_goal',28600],['weekly_prize',100]];
+  const supDefaults=[['daily_goal',7142],['daily_prize',50],['weekly_goal',28600],['weekly_prize',100]];
   for(const [n,v] of supDefaults) await dbQuery(`INSERT INTO supervisor_prize_settings(name,value,active) VALUES($1,$2,1) ON CONFLICT(name) DO NOTHING`,[n,v]);
   // Corrige a inversão antiga das metas do supervisor, sem mexer em valores que o ADMIN já tenha personalizado.
-  await dbQuery(`UPDATE supervisor_prize_settings SET value=5715 WHERE name='daily_goal' AND value=28600`);
+  await dbQuery(`UPDATE supervisor_prize_settings SET value=7142 WHERE name='daily_goal' AND value IN (28600,5715)`);
   await dbQuery(`UPDATE supervisor_prize_settings SET value=28600 WHERE name='weekly_goal' AND value=5715`);
   // Padroniza os nomes das premiações de meta diária para não aparecerem como acumulado diário.
   await dbQuery(`UPDATE prize_rules SET name='Meta diária — 1º lugar', description='Meta da equipe de R$ 7.500 no dia; 1º lugar em faturamento bruto' WHERE category='daily_rank' AND prize_amount=50`);
@@ -1116,7 +1116,7 @@ app.get('/api/supervisor-prizes',auth,rankingAdminOrAdmin,async(req,res)=>{
     }
   }
   const rows=[...byDay.values()].sort((a,b)=>String(a.sale_date).localeCompare(String(b.sale_date)));
-  const dailyGoal=by.daily_goal?.value??5715, weeklyGoal=by.weekly_goal?.value??28600;
+  const dailyGoal=by.daily_goal?.value??7142, weeklyGoal=by.weekly_goal?.value??28600;
   const dailyPrize=by.daily_prize?.value??50, weeklyPrize=by.weekly_prize?.value??100;
   const calcPrize=(revenue,goal,base)=>{const multiples=Math.floor(Number(revenue)/Number(goal));return multiples>0?multiples*Number(base):0};
   const daily=rows.map(r=>{const revenue=Number(r.revenue),prize=calcPrize(revenue,dailyGoal,dailyPrize);return {...r,revenue,sales:Number(r.sales),hit:revenue>=dailyGoal,multiplier:dailyGoal>0?Math.floor(revenue/dailyGoal):0,prize}});
@@ -1125,8 +1125,8 @@ app.get('/api/supervisor-prizes',auth,rankingAdminOrAdmin,async(req,res)=>{
     const revenue=rs.reduce((a,r)=>a+Number(r.revenue),0);
     // Na semana final de um mês incompleto, a meta do supervisor é proporcional
     // aos dias úteis restantes do mês. Ex.: 28/09 a 30/09 = 3 dias.
-    // A meta diária é R$ 5.715; 3 dias = R$ 17.145, exibidos arredondados
-    // para a dezena de R$ 50 mais próxima = R$ 17.150.
+    // A meta diária é R$ 7.142; 3 dias = R$ 21.426, exibidos arredondados
+    // para o múltiplo de R$ 50 mais próximo = R$ 21.450.
     const weekDate=dateOnly(start);
     const monthEnd=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),0,12,0,0));
     const weekEnd=new Date(weekDate.getTime());
