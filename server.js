@@ -292,7 +292,7 @@ async function init(){
   const supDefaults=[['daily_goal',7142],['daily_prize',50],['weekly_goal',28600],['weekly_prize',100]];
   for(const [n,v] of supDefaults) await dbQuery(`INSERT INTO supervisor_prize_settings(name,value,active) VALUES($1,$2,1) ON CONFLICT(name) DO NOTHING`,[n,v]);
   // Corrige a inversão antiga das metas do supervisor, sem mexer em valores que o ADMIN já tenha personalizado.
-  await dbQuery(`UPDATE supervisor_prize_settings SET value=7142 WHERE name='daily_goal' AND value IN (28600,5715)`);
+  await dbQuery(`UPDATE supervisor_prize_settings SET value=7142 WHERE name='daily_goal' AND value IN (70000,28600,5715)`);
   await dbQuery(`UPDATE supervisor_prize_settings SET value=28600 WHERE name='weekly_goal' AND value=5715`);
   // Padroniza os nomes das premiações de meta diária para não aparecerem como acumulado diário.
   await dbQuery(`UPDATE prize_rules SET name='Meta diária — 1º lugar', description='Meta da equipe de R$ 7.500 no dia; 1º lugar em faturamento bruto' WHERE category='daily_rank' AND prize_amount=50`);
