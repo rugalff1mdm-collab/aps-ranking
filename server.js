@@ -614,7 +614,7 @@ app.get('/api/ranking',auth,async(req,res)=>{
     row.revenue+=saleRankingRevenueForMonth(s,month);
     if(String(s.sale_date).slice(0,7)===month) row.sales_count++;
   }
-  res.json([...byId.values()].map(r=>({...r,revenue:Number(r.revenue.toFixed(2)),sales_count:Number(r.sales_count||0),avg_ticket:r.sales_count?Number(r.revenue)/Number(r.sales_count):0,goal_pct:r.goal?Number(r.revenue)/Number(r.goal)*100:0}))
+  res.json([...byId.values()].map(r=>({...r,photo_data:compactPhotoData(r.photo_data),revenue:Number(r.revenue.toFixed(2)),sales_count:Number(r.sales_count||0),avg_ticket:r.sales_count?Number(r.revenue)/Number(r.sales_count):0,goal_pct:r.goal?Number(r.revenue)/Number(r.goal)*100:0}))
     .sort((x,y)=>y.revenue-x.revenue||y.sales_count-x.sales_count||String(x.name).localeCompare(String(y.name))));
 });
 
@@ -892,7 +892,7 @@ async function analytics(req){
     return {id:u.id,name:u.name,goal:Number(u.goal||0),photo_data:u.photo_data||null,leads:leadConsultantTotals.get(Number(u.id))||0,sales:Number(row.sales||0),revenue:Number((row.revenue||0).toFixed(2))};
   }).sort((x,y)=>y.revenue-x.revenue||y.sales-x.sales||String(x.name).localeCompare(String(y.name)));
 
-  const decorate=r=>({...r,leads:Number(r.leads||0),sales:Number(r.sales||0),revenue:Number(r.revenue||0),conversion:Number(r.leads)?Number(r.sales)/Number(r.leads)*100:0,goal:Number(r.goal||0),goal_pct:Number(r.goal)?Number(r.revenue)/Number(r.goal)*100:0});
+  const decorate=r=>({...r,photo_data:compactPhotoData(r.photo_data),leads:Number(r.leads||0),sales:Number(r.sales||0),revenue:Number(r.revenue||0),conversion:Number(r.leads)?Number(r.sales)/Number(r.leads)*100:0,goal:Number(r.goal||0),goal_pct:Number(r.goal)?Number(r.revenue)/Number(r.goal)*100:0});
   return {
     month,
     summary:{
@@ -1026,11 +1026,12 @@ async function prizeData(month, consultantId=null){
     const signed=a.adjustment_type==='cut'?-amount:amount;
     c.awards.push({id:`manual-${a.id}`,manual:true,adjustment_type:a.adjustment_type,rule_name:a.adjustment_type==='cut'?'Corte manual':'Premiação manual extra',amount:signed,date:a.adjustment_date,reason:a.reason});
   }
-  out.forEach(c=>{c.total_prize=c.awards.reduce((a,x)=>a+Number(x.amount),0);c.awards.sort((a,b)=>String(b.date).localeCompare(String(a.date))||b.amount-a.amount)});
+  out.forEach(c=>{c.photo_data=compactPhotoData(c.photo_data);c.total_prize=c.awards.reduce((a,x)=>a+Number(x.amount),0);c.awards.sort((a,b)=>String(b.date).localeCompare(String(a.date))||b.amount-a.amount)});
 
   out.sort((a,b)=>b.total_prize-a.total_prize||b.revenue-a.revenue||a.name.localeCompare(b.name));
   return {month,consultants:out,rules};
 }
+function compactPhotoData(value){return typeof value==='string' && value.length<=16000 ? value : null}
 function moneyJs(v){return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(v)||0)}
 app.get('/api/prizes',auth,async(req,res)=>{
   try{
