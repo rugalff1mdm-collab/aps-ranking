@@ -660,6 +660,7 @@ app.get('/api/team-rankings',auth,async(req,res)=>{
 
     const decorated=[...teamUsers.values()].map(r=>({
       ...r,
+      photo_data:compactPhotoData(r.photo_data),
       revenue:Number(r.revenue.toFixed(2)),
       sales_count:Number(r.sales_count||0),
       avg_ticket:r.sales_count?Number(r.revenue)/Number(r.sales_count):0,
