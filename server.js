@@ -689,7 +689,12 @@ app.get('/api/sales',auth,async(req,res)=>{
   if(!['admin','ranking_admin'].includes(req.user.role)){extra=' AND s.consultant_id=?';p.push(req.user.id)}
   const rows=await dbAll(`SELECT s.id,s.client_name,s.client_age,s.birth_date,s.amount,s.gross_amount,s.sale_date,s.state,s.lead_source_id,s.payment_type,s.installments,s.card_platform,s.card_fee_rate,s.card_fee_amount,s.payment_date_1,s.payment_amount_2,s.payment_type_2,s.installments_2,s.card_platform_2,s.card_fee_rate_2,s.card_fee_amount_2,s.payment_date_2,s.payment_amount_3,s.payment_type_3,s.installments_3,s.card_platform_3,s.card_fee_rate_3,s.card_fee_amount_3,s.payment_date_3,ls.name lead_source_name,u.name consultant_name,u.id consultant_id
     FROM sales s JOIN users u ON u.id=s.consultant_id LEFT JOIN lead_sources ls ON ls.id=s.lead_source_id
-    WHERE substr(s.sale_date,1,7)=?${extra} ORDER BY s.sale_date DESC,s.id DESC`,p);
+    WHERE (
+      substr(COALESCE(s.payment_date_1,s.sale_date,''),1,7)=?
+      OR substr(COALESCE(s.payment_date_2,''),1,7)=?
+      OR substr(COALESCE(s.payment_date_3,''),1,7)=?
+      OR substr(COALESCE(s.sale_date,''),1,7)=?
+    )${extra} ORDER BY s.sale_date DESC,s.id DESC`,[month,month,month,month,...p.slice(1)]);
   res.json(rows.map(r=>({...r,amount:Number(r.amount),gross_amount:r.gross_amount===null||r.gross_amount===undefined?null:Number(r.gross_amount)})));
 });
 
@@ -824,11 +829,17 @@ async function analytics(req){
   const state=normalizeState(req.query.state)||null;
   const sourceId=Number(req.query.lead_source_id||0)||null;
 
-  const salesFilter=dateFilterParts({month,consultantId,state,sourceId},'s');
+  // O mês das vendas segue as datas de pagamento usadas pelo ranking.
+  const salesFilter=dateFilterParts({month:null,consultantId,state,sourceId},'s');
   const leadFilter=dateFilterParts({month,consultantId,state,sourceId},'l');
-  const salesWhere=salesFilter.where.replace(/s\.date/g,'s.sale_date');
+  const salesWhere=` AND (
+    substr(COALESCE(s.payment_date_1,s.sale_date,''),1,7)=?
+    OR substr(COALESCE(s.payment_date_2,''),1,7)=?
+    OR substr(COALESCE(s.payment_date_3,''),1,7)=?
+    OR substr(COALESCE(s.sale_date,''),1,7)=?
+  )`+salesFilter.where;
   const leadWhere=leadFilter.where.replace(/l\.date/g,'l.lead_date');
-  const salesParams=salesFilter.params,leadParams=leadFilter.params;
+  const salesParams=[month,month,month,month,...salesFilter.params],leadParams=leadFilter.params;
 
   // O faturamento dos indicadores precisa usar exatamente a mesma regra do ranking.
   // Antes, analytics somava sales.amount (líquido total), causando divergência com o ranking.
@@ -846,6 +857,9 @@ async function analytics(req){
   const revenueFor=s=>Number(saleRankingRevenueForMonth(s,month).toFixed(2));
   const totalRevenue=sales.reduce((a,s)=>a+revenueFor(s),0);
   const salesCount=sales.length;
+  const ages=sales.map(s=>Number(s.client_age ?? calculateAge(s.birth_date,s.sale_date)))
+    .filter(age=>Number.isInteger(age)&&age>=18&&age<=120);
+  const averageAge=ages.length?Number((ages.reduce((sum,age)=>sum+age,0)/ages.length).toFixed(1)):null;
 
   const sourceMap=new Map();
   const stateMap=new Map();
@@ -900,6 +914,8 @@ async function analytics(req){
       revenue:Number(totalRevenue.toFixed(2)),
       sales:salesCount,
       sales_count:salesCount,
+      average_age:averageAge,
+      age_sample_size:ages.length,
       goal:Number(goal.goal||0),
       leads:Number(leads.leads||0),
       conversion:Number(leads.leads)?salesCount/Number(leads.leads)*100:0
