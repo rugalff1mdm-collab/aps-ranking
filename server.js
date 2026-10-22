@@ -601,13 +601,27 @@ app.get('/api/ranking',auth,async(req,res)=>{
   if(team && !['A','B'].includes(team)) return res.status(400).json({error:'Equipe inválida'});
   if(team && req.user.role!=='admin') return res.status(403).json({error:'Acesso restrito'});
   const users=await dbAll("SELECT id,name,goal,photo_data,team FROM users WHERE role='consultant' AND active=1"+(team?" AND team=?":""),team?[team]:[]);
-  const sales=dedupeSalesForRanking(await dbAll(`SELECT s.* FROM sales s JOIN users u ON u.id=s.consultant_id
+  const monthStart=`${month}-01`;
+  const [year,monthNumber]=month.split('-').map(Number);
+  const nextDate=new Date(Date.UTC(year,monthNumber,1)).toISOString().slice(0,10);
+  // Buscar por intervalos de data (em vez de substr em cada linha) permite
+  // aproveitar índices e reduz o trabalho do Worker em tabelas grandes.
+  // Selecionamos apenas os campos usados no cálculo do ranking.
+  const sales=dedupeSalesForRanking(await dbAll(`SELECT
+      s.id,s.consultant_id,s.client_name,s.amount,s.gross_amount,s.sale_date,
+      s.payment_date_1,s.payment_date_2,s.payment_date_3,
+      s.card_fee_amount,s.card_fee_amount_2,s.card_fee_amount_3,
+      s.payment_amount_2,s.payment_amount_3,
+      s.installments,s.installments_2,s.installments_3
+    FROM sales s JOIN users u ON u.id=s.consultant_id
     WHERE (
-      substr(s.sale_date,1,7)=?
-      OR substr(COALESCE(s.payment_date_1,''),1,7)=?
-      OR substr(COALESCE(s.payment_date_2,''),1,7)=?
-      OR substr(COALESCE(s.payment_date_3,''),1,7)=?
-    )${team?' AND u.team=?':''}`,team?[month,month,month,month,team]:[month,month,month,month]));
+      (s.sale_date >= ? AND s.sale_date < ?)
+      OR (s.payment_date_1 >= ? AND s.payment_date_1 < ?)
+      OR (s.payment_date_2 >= ? AND s.payment_date_2 < ?)
+      OR (s.payment_date_3 >= ? AND s.payment_date_3 < ?)
+    )${team?' AND u.team=?':''}`,
+    team?[monthStart,nextDate,monthStart,nextDate,monthStart,nextDate,monthStart,nextDate,team]
+      :[monthStart,nextDate,monthStart,nextDate,monthStart,nextDate,monthStart,nextDate]));
   const byId = new Map(users.map(u => [Number(u.id), {...u, revenue: 0, sales_count: 0}]));
   for(const s of sales){
     const row=byId.get(Number(s.consultant_id)); if(!row) continue;
