@@ -842,27 +842,45 @@ async function analytics(req){
   const consultantId=Number(req.query.consultant_id||0)||null;
   const state=normalizeState(req.query.state)||null;
   const sourceId=Number(req.query.lead_source_id||0)||null;
+  const ageGroup=String(req.query.age_group||'all');
 
-  // O mês das vendas segue as datas de pagamento usadas pelo ranking.
+  // Incluir separadamente a data da venda e cada data de pagamento.
+  // COALESCE(payment_date_1, sale_date) escondia sale_date quando o pagamento 1
+  // existia em outro mês, fazendo vendas/estados sumirem na análise histórica.
   const salesFilter=dateFilterParts({month:null,consultantId,state,sourceId},'s');
   const leadFilter=dateFilterParts({month,consultantId,state,sourceId},'l');
   const salesWhere=` AND (
-    substr(COALESCE(s.payment_date_1,s.sale_date,''),1,7)=?
+    substr(COALESCE(s.payment_date_1,''),1,7)=?
+    OR substr(COALESCE(s.sale_date,''),1,7)=?
     OR substr(COALESCE(s.payment_date_2,''),1,7)=?
     OR substr(COALESCE(s.payment_date_3,''),1,7)=?
-    OR substr(COALESCE(s.sale_date,''),1,7)=?
   )`+salesFilter.where;
   const leadWhere=leadFilter.where.replace(/l\.date/g,'l.lead_date');
   const salesParams=[month,month,month,month,...salesFilter.params],leadParams=leadFilter.params;
 
   // O faturamento dos indicadores precisa usar exatamente a mesma regra do ranking.
   // Antes, analytics somava sales.amount (líquido total), causando divergência com o ranking.
-  const sales=dedupeSalesForRanking(await dbAll(
+  let sales=dedupeSalesForRanking(await dbAll(
     `SELECT s.*,u.name consultant_name,u.goal,u.photo_data,u.team
      FROM sales s JOIN users u ON u.id=s.consultant_id
      WHERE 1=1${salesWhere}`,
     salesParams
   ));
+  const ageOf=s=>{
+    const raw=s.client_age;
+    const value=raw!==null&&raw!==undefined&&raw!==''?Number(raw):calculateAge(s.birth_date,s.sale_date);
+    return Number.isInteger(value)&&value>=18&&value<=120?value:null;
+  };
+  const matchesAgeGroup=age=>{
+    if(age===null)return ageGroup==='unknown';
+    if(ageGroup==='18-24')return age>=18&&age<=24;
+    if(ageGroup==='25-34')return age>=25&&age<=34;
+    if(ageGroup==='35-44')return age>=35&&age<=44;
+    if(ageGroup==='45-59')return age>=45&&age<=59;
+    if(ageGroup==='60+')return age>=60;
+    return true;
+  };
+  if(ageGroup!=='all')sales=sales.filter(s=>matchesAgeGroup(ageOf(s)));
   const leads=await dbGet(`SELECT COALESCE(SUM(l.quantity),0) leads FROM leads l WHERE 1=1${leadWhere}`,leadParams);
   const goalWhere=consultantId?' AND u.id=?':'';
   const goalParams=consultantId?[consultantId]:[];
@@ -871,8 +889,7 @@ async function analytics(req){
   const revenueFor=s=>Number(saleRankingRevenueForMonth(s,month).toFixed(2));
   const totalRevenue=sales.reduce((a,s)=>a+revenueFor(s),0);
   const salesCount=sales.length;
-  const ages=sales.map(s=>Number(s.client_age ?? calculateAge(s.birth_date,s.sale_date)))
-    .filter(age=>Number.isInteger(age)&&age>=18&&age<=120);
+  const ages=sales.map(ageOf).filter(age=>age!==null);
   const averageAge=ages.length?Number((ages.reduce((sum,age)=>sum+age,0)/ages.length).toFixed(1)):null;
 
   const sourceMap=new Map();
