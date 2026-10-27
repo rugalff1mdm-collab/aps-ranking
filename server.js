@@ -477,21 +477,21 @@ function paymentPartsFromSale(s){
   return out;
 }
 function rankingSaleSignature(s){
-  // A data diferencia vendas legítimas do mesmo consultor para o mesmo cliente
-  // e valor em dias diferentes. Sem ela, uma venda podia sumir do ranking.
-  const fields=[
-    s.consultant_id,
-    String(s.client_name||'').trim().toLowerCase().replace(/\s+/g,' '),
-    Number(s.amount||0).toFixed(2),
-    String(s.sale_date||'').slice(0,10)
-  ];
-  return fields.join('|');
+  // O ID identifica o registro real da venda. Cliente, valor e data NÃO são
+  // uma chave única: duas vendas legítimas podem ter exatamente os mesmos dados.
+  // Usar esses campos como chave removia vendas válidas (inclusive no ranking
+  // e nos cálculos de premiação).
+  if(s?.id!==undefined && s?.id!==null && String(s.id)!=='') return String(s.id);
+  return null;
 }
 function dedupeSalesForRanking(sales){
   const seen=new Set();
   const out=[];
   for(const s of sales||[]){
     const key=rankingSaleSignature(s);
+    // Se não houver ID, preserve o registro; é mais seguro contar uma venda
+    // real do que apagar silenciosamente uma venda legítima por semelhança.
+    if(key===null){out.push(s);continue;}
     if(seen.has(key)) continue;
     seen.add(key);
     out.push(s);
