@@ -848,14 +848,17 @@ async function analytics(req){
   // existia em outro mês, fazendo vendas/estados sumirem na análise histórica.
   const salesFilter=dateFilterParts({month:null,consultantId,state,sourceId},'s');
   const leadFilter=dateFilterParts({month,consultantId,state,sourceId},'l');
+  const monthRange=monthBounds(month);
+  // Comparação por intervalo (em vez de substr(...)) permite que o banco use
+  // índices de data e reduz varreduras completas na tabela de vendas.
   const salesWhere=` AND (
-    substr(COALESCE(s.payment_date_1,''),1,7)=?
-    OR substr(COALESCE(s.sale_date,''),1,7)=?
-    OR substr(COALESCE(s.payment_date_2,''),1,7)=?
-    OR substr(COALESCE(s.payment_date_3,''),1,7)=?
+    (s.payment_date_1>=? AND s.payment_date_1<?)
+    OR (s.sale_date>=? AND s.sale_date<?)
+    OR (s.payment_date_2>=? AND s.payment_date_2<?)
+    OR (s.payment_date_3>=? AND s.payment_date_3<?)
   )`+salesFilter.where;
   const leadWhere=leadFilter.where.replace(/l\.date/g,'l.lead_date');
-  const salesParams=[month,month,month,month,...salesFilter.params],leadParams=leadFilter.params;
+  const salesParams=[monthRange.start,monthRange.next,monthRange.start,monthRange.next,monthRange.start,monthRange.next,monthRange.start,monthRange.next,...salesFilter.params],leadParams=leadFilter.params;
 
   // O faturamento dos indicadores precisa usar exatamente a mesma regra do ranking.
   // Antes, analytics somava sales.amount (líquido total), causando divergência com o ranking.
